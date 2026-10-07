@@ -1,0 +1,15 @@
+[Unit]
+Description=Delta Exchange 24/7 Algorithmic Trading Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/var/www/delta-algo/backend
+Environment="PYTHONPATH=/var/www/delta-algo/backend"
+ExecStart=/var/www/delta-algo/backend/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
