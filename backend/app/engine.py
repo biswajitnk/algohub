@@ -143,11 +143,11 @@ class AlgoEngine:
         if mode == "LIVE" and self.delta_client:
             try:
                 delta_bal = await self.delta_client.get_total_balance_usd()
-                bal = float(delta_bal.get("total_balance", 0.0) or delta_bal.get("available_balance", 0.0))
-                if bal > 0:
-                    return bal
+                bal = float(delta_bal.get("available_balance", 0.0) or delta_bal.get("total_balance", 0.0) or 0.0)
+                return max(0.0, bal)
             except Exception as e:
                 logger.warning(f"Failed to fetch live balance for sizing: {e}")
+                return 0.0
 
         try:
             settings_res = await session.execute(select(AppSettings).order_by(AppSettings.id.desc()).limit(1))
@@ -156,7 +156,7 @@ class AlgoEngine:
                 return float(settings_rec.paper_balance)
         except Exception:
             pass
-        return 1000.0
+        return 10000.0 if mode == "PAPER" else 0.0
 
     async def _evaluate_bot(self, bot: BotConfig, session: AsyncSession, today_pnl: float):
         # Calculate dynamic allocation from allocation_pct (% of account)
@@ -229,6 +229,16 @@ class AlgoEngine:
                         if current_price >= target_rr and open_trade.stop_loss < open_trade.entry_price:
                             open_trade.stop_loss = open_trade.entry_price
                             await session.commit()
+
+                            # If LIVE, cancel old exchange stop loss order to avoid triggering at a loss
+                            if open_trade.mode == "LIVE" and self.delta_client:
+                                try:
+                                    prod = await self.delta_client.get_product_by_symbol(symbol)
+                                    if prod:
+                                        await self.delta_client.cancel_all_orders(product_id=prod["id"])
+                                except Exception as be_err:
+                                    logger.warning(f"Could not cancel old SL on Delta during Breakeven move: {be_err}")
+
                             logger.info(f"Bot {bot.name} ({symbol}): 🎯 1:{rr_ratio:g} R:R Breakeven hit at ${current_price:.2f}! SL moved to entry price ${open_trade.entry_price:.2f}.")
                             await notifier.notify_trade(
                                 f"Breakeven Hit (1:{rr_ratio:g} R:R) — {open_trade.symbol}",
@@ -326,6 +336,10 @@ class AlgoEngine:
                 # 2. Risk-Based Position Sizing:
                 # User specifies risk_pct (e.g. 2% of total account balance risked on SL hit)
                 account_bal = await self._get_account_balance(bot.mode, session)
+                if account_bal <= 0:
+                    logger.warning(f"Bot {bot.name} ({symbol}): Account balance (${account_bal:.2f}) is 0 or unavailable. Trade skipped.")
+                    return
+
                 risk_pct = bot.risk_pct if (bot.risk_pct is not None and bot.risk_pct > 0) else 2.0
                 max_risk_usd = max(1.0, account_bal * (risk_pct / 100.0))
 
@@ -342,13 +356,18 @@ class AlgoEngine:
 
                 # Contracts = Shares / Contract Value
                 contracts = max(1, int(shares / contract_val))
-                notional_size_usd = round(contracts * contract_val * current_price, 2)
 
-                # Cap contracts by available account purchasing power with leverage (safety guard)
-                max_contracts = max(1, int((account_bal * bot.leverage * 0.90) / (contract_val * current_price)))
-                if contracts > max_contracts:
-                    contracts = max_contracts
-                    notional_size_usd = round(contracts * contract_val * current_price, 2)
+                # Cap contracts by available account purchasing power with leverage (safety guard: 90% of balance)
+                max_contracts = int((account_bal * bot.leverage * 0.90) / (contract_val * current_price))
+                if max_contracts < 1:
+                    logger.warning(
+                        f"Bot {bot.name} ({symbol}): Insufficient balance (${account_bal:.2f}) for 1 contract margin "
+                        f"(${(contract_val * current_price / bot.leverage):.2f} required). Trade skipped."
+                    )
+                    return
+
+                contracts = min(contracts, max_contracts)
+                notional_size_usd = round(contracts * contract_val * current_price, 2)
 
                 # Validate with risk manager
                 is_allowed, risk_reason = risk_manager.validate_order(
@@ -474,6 +493,12 @@ class AlgoEngine:
             try:
                 prod = await self.delta_client.get_product_by_symbol(trade.symbol)
                 if prod:
+                    # Cancel any resting bracket stop/take-profit orders first to prevent orphaned fills
+                    try:
+                        await self.delta_client.cancel_all_orders(product_id=prod["id"])
+                    except Exception as cancel_err:
+                        logger.warning(f"Could not cancel open orders for {trade.symbol} before close: {cancel_err}")
+
                     await self.delta_client.close_position(
                         product_id=prod["id"],
                         size=trade.contracts,

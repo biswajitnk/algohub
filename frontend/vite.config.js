@@ -14,7 +14,14 @@ export default defineConfig({
       },
       '/ws': {
         target: 'ws://127.0.0.1:8000',
-        ws: true
+        ws: true,
+        configure: (proxy, _options) => {
+          proxy.on('error', (err, _req, _res) => {
+            if (err.code !== 'ECONNABORTED' && err.code !== 'ECONNRESET') {
+              console.warn('[vite proxy error]', err.message);
+            }
+          });
+        }
       }
     }
   }
