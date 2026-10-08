@@ -1,7 +1,41 @@
-const API_BASE = '/api/v1';
+export function getBackendBaseUrl() {
+  const envUrl = import.meta.env.VITE_API_URL;
+  if (envUrl && envUrl.trim()) return envUrl.trim().replace(/\/+$/, '');
+  if (typeof window !== 'undefined') {
+    const saved = localStorage.getItem('algohub_backend_url');
+    if (saved && saved.trim()) return saved.trim().replace(/\/+$/, '');
+  }
+  return '';
+}
+
+export function setBackendBaseUrl(url) {
+  if (typeof window !== 'undefined') {
+    if (url && url.trim()) {
+      localStorage.setItem('algohub_backend_url', url.trim().replace(/\/+$/, ''));
+    } else {
+      localStorage.removeItem('algohub_backend_url');
+    }
+  }
+}
+
+function getApiBase() {
+  const base = getBackendBaseUrl();
+  return base ? `${base}/api/v1` : '/api/v1';
+}
+
+function getWsUrl() {
+  const base = getBackendBaseUrl();
+  if (base) {
+    const wsPrefix = base.startsWith('https://') ? 'wss://' : 'ws://';
+    const hostPart = base.replace(/^https?:\/\//, '');
+    return `${wsPrefix}${hostPart}/ws`;
+  }
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${protocol}//${window.location.host}/ws`;
+}
 
 async function request(endpoint, options = {}) {
-  const url = `${API_BASE}${endpoint}`;
+  const url = `${getApiBase()}${endpoint}`;
   const headers = {
     'Content-Type': 'application/json',
     ...(options.headers || {})
@@ -74,8 +108,7 @@ export const api = {
 
   // Real-time WebSocket connection
   connectWebSocket: (onMessage, onStatusChange) => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws`;
+    const wsUrl = getWsUrl();
     let ws = null;
     let reconnectTimeout = null;
 

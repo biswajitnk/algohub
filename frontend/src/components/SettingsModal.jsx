@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Shield, Bell, Key, CheckCircle, AlertTriangle, Send, RefreshCw, X } from 'lucide-react';
-import { api } from '../services/api';
+import { Settings, Shield, Bell, Key, CheckCircle, AlertTriangle, Send, RefreshCw, X, Globe } from 'lucide-react';
+import { api, getBackendBaseUrl, setBackendBaseUrl } from '../services/api';
 
 export default function SettingsModal({ isOpen, onClose, onSettingsUpdated }) {
   const [loading, setLoading] = useState(false);
@@ -9,6 +9,7 @@ export default function SettingsModal({ isOpen, onClose, onSettingsUpdated }) {
   const [statusMsg, setStatusMsg] = useState(null);
 
   const [formData, setFormData] = useState({
+    backend_url: getBackendBaseUrl(),
     exchange_type: 'india',
     delta_api_key: '',
     delta_api_secret: '',
@@ -35,12 +36,13 @@ export default function SettingsModal({ isOpen, onClose, onSettingsUpdated }) {
       setFormData(prev => ({
         ...prev,
         ...data,
+        backend_url: getBackendBaseUrl(),
         delta_api_key: '',
         delta_api_secret: '',
         telegram_bot_token: ''
       }));
     } catch (err) {
-      setStatusMsg({ type: 'error', text: 'Failed to load settings: ' + err.message });
+      setStatusMsg({ type: 'error', text: 'Backend not reachable: ' + err.message });
     } finally {
       setLoading(false);
     }
@@ -51,6 +53,7 @@ export default function SettingsModal({ isOpen, onClose, onSettingsUpdated }) {
     setLoading(true);
     setStatusMsg(null);
     try {
+      setBackendBaseUrl(formData.backend_url);
       const payload = {
         exchange_type: formData.exchange_type,
         max_daily_loss: parseFloat(formData.max_daily_loss),
@@ -138,6 +141,27 @@ export default function SettingsModal({ isOpen, onClose, onSettingsUpdated }) {
 
         <form onSubmit={handleSave} className="space-y-6 mt-4">
           
+          {/* Section 0: Remote Backend Host (for Web Hosting / Cloud deploy) */}
+          <div className="p-3 bg-dark-900/80 rounded-xl border border-dark-700">
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-semibold text-slate-300 flex items-center space-x-1.5">
+                <Globe className="w-3.5 h-3.5 text-brand-400" />
+                <span>Backend Server Host (API Endpoint)</span>
+              </label>
+              <span className="text-[10px] text-slate-500">Leave blank if running locally / same server</span>
+            </div>
+            <input
+              type="text"
+              placeholder="e.g. https://api.dltapp.cloud or https://your-backend.onrender.com"
+              value={formData.backend_url || ''}
+              onChange={(e) => setFormData({ ...formData, backend_url: e.target.value })}
+              className="w-full bg-dark-950 border border-dark-700 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-brand-500 font-mono"
+            />
+            <p className="text-[10px] text-slate-500 mt-1">
+              Agar aapne frontend Hostinger par host kiya hai, to apne running Python backend ka URL yahan enter karein.
+            </p>
+          </div>
+
           {/* Section 1: Delta Exchange API */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
