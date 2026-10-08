@@ -86,17 +86,35 @@ async def update_settings(payload: AppSettingsUpdate, db: AsyncSession = Depends
     return await get_settings(db)
 
 @router.post("/test-telegram")
-async def test_telegram(payload: TelegramTestRequest):
+async def test_telegram(payload: TelegramTestRequest, db: AsyncSession = Depends(get_db)):
     """Send test alert message to user's Telegram phone app."""
+    token = payload.telegram_bot_token or notifier.bot_token
+    chat_id = payload.telegram_chat_id or notifier.chat_id
+
+    if not token or not chat_id:
+        res = await db.execute(select(AppSettings).order_by(AppSettings.id.desc()).limit(1))
+        s = res.scalars().first()
+        if s:
+            token = token or s.telegram_bot_token
+            chat_id = chat_id or s.telegram_chat_id
+
+    if not token or not chat_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Bot Token and Chat ID are missing. Please enter them or click 'Save & Apply Settings'."
+        )
+
     success = await notifier.send_telegram(
         f"<b>🚀 DELTA ALGO ALERT TEST</b>\n\n"
         f"{payload.message}\n\n"
-        f"✅ <i>Your 24/7 VPS Algo Bot is connected and ready to notify your phone!</i>"
+        f"✅ <i>Your 24/7 VPS Algo Bot is connected and ready to notify your phone!</i>",
+        bot_token=token,
+        chat_id=chat_id
     )
     if not success:
         raise HTTPException(
             status_code=400,
-            detail="Failed to send Telegram test alert. Please verify your Bot Token and Chat ID."
+            detail="Failed to send Telegram test alert. Please verify your Bot Token, Chat ID, and ensure you have clicked 'Start' in your bot."
         )
     return {"success": True, "message": "Test alert sent to your Telegram phone successfully!"}
 

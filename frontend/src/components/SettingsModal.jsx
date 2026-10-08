@@ -97,7 +97,11 @@ export default function SettingsModal({ isOpen, onClose, onSettingsUpdated }) {
     setTestingTg(true);
     setStatusMsg(null);
     try {
-      const res = await api.testTelegram('🔔 VPS Algo Test: Phone alerts are working properly!');
+      const res = await api.testTelegram({
+        message: '🔔 VPS Algo Test: Phone alerts are working properly!',
+        telegram_bot_token: formData.telegram_bot_token || undefined,
+        telegram_chat_id: formData.telegram_chat_id || undefined,
+      });
       setStatusMsg({ type: 'success', text: 'Notification sent! Check your Telegram phone app now.' });
     } catch (err) {
       setStatusMsg({ type: 'error', text: 'Telegram Test Failed: ' + err.message });

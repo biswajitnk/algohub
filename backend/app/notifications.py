@@ -45,21 +45,23 @@ class NotificationManager:
         for dead in dead_connections:
             self.unregister_websocket(dead)
 
-    async def send_telegram(self, text: str) -> bool:
+    async def send_telegram(self, text: str, bot_token: Optional[str] = None, chat_id: Optional[str] = None) -> bool:
         """Send message directly to the user's phone via Telegram."""
-        if not self.bot_token or not self.chat_id:
+        token = bot_token or self.bot_token
+        target_chat = chat_id or self.chat_id
+        if not token or not target_chat:
             logger.info(f"Telegram not configured. Logged alert: {text}")
             return False
 
-        url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
         payload = {
-            "chat_id": self.chat_id,
+            "chat_id": target_chat,
             "text": text,
             "parse_mode": "HTML",
             "disable_web_page_preview": True
         }
         try:
-            async with httpx.AsyncClient(timeout=6.0) as client:
+            async with httpx.AsyncClient(timeout=8.0) as client:
                 r = await client.post(url, json=payload)
                 if r.status_code == 200:
                     return True

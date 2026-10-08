@@ -123,6 +123,8 @@ class AppSettingsUpdate(BaseModel):
 
 class TelegramTestRequest(BaseModel):
     message: Optional[str] = "🔔 Delta Algo Trading: Test alert connection successful!"
+    telegram_bot_token: Optional[str] = None
+    telegram_chat_id: Optional[str] = None
 
 class TestDeltaRequest(BaseModel):
     delta_api_key: Optional[str] = None

@@ -64,7 +64,11 @@ export const api = {
   // Settings & Risk
   getSettings: () => request('/settings'),
   updateSettings: (data) => request('/settings', { method: 'POST', body: JSON.stringify(data) }),
-  testTelegram: (message) => request('/settings/test-telegram', { method: 'POST', body: JSON.stringify({ message }) }),
+  testTelegram: (payload) => 
+    request('/settings/test-telegram', { 
+      method: 'POST', 
+      body: JSON.stringify(typeof payload === 'string' ? { message: payload } : payload) 
+    }),
   testDelta: (data = {}) => request('/settings/test-delta', { method: 'POST', body: JSON.stringify(data) }),
   triggerKillSwitch: () => request('/settings/kill-switch', { method: 'POST' }),
 
