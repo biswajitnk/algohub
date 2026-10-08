@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, ShieldAlert, Settings, Terminal, Zap, CheckCircle2, AlertTriangle, LogOut, User } from 'lucide-react';
+import { ShieldAlert, Settings, Zap, LogOut, User, Activity } from 'lucide-react';
 
 export default function Header({ 
   stats, 
@@ -14,32 +14,34 @@ export default function Header({
   onSignOut
 }) {
   return (
-    <header className="bg-dark-800 border-b border-dark-700 sticky top-0 z-40 backdrop-blur-md bg-opacity-90">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
+    <header className="bg-dark-800/95 border-b border-dark-700/80 sticky top-0 z-40 backdrop-blur-md">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+        <div className="flex items-center justify-between h-14 sm:h-16 gap-2 sm:gap-4">
           
-          {/* Logo & Exchange Info */}
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 to-emerald-400 flex items-center justify-center shadow-lg shadow-brand-500/20">
-              <Zap className="w-6 h-6 text-black" />
+          {/* 1. Left: Brand & Status */}
+          <div className="flex items-center space-x-2 sm:space-x-3 flex-shrink-0">
+            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-tr from-brand-600 to-emerald-400 flex items-center justify-center shadow-md shadow-brand-500/20 flex-shrink-0">
+              <Zap className="w-5 h-5 text-black" />
             </div>
             <div>
-              <div className="flex items-center space-x-2">
-                <span className="font-bold text-lg text-white tracking-tight">Delta Algo</span>
-                <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800 uppercase tracking-wider">
+              <div className="flex items-center space-x-1.5 sm:space-x-2">
+                <span className="font-extrabold text-sm sm:text-base text-white tracking-tight">
+                  AlgoHub
+                </span>
+                <span className="px-1.5 py-0.2 sm:px-2 sm:py-0.5 text-[10px] sm:text-xs font-bold rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800 uppercase">
                   {stats?.exchange_type || 'India'}
                 </span>
-                <span className="hidden sm:inline-flex items-center space-x-1 px-2 py-0.5 text-xs font-medium rounded-full bg-dark-700 text-slate-300">
-                  <span className={`w-2 h-2 rounded-full ${wsStatus === 'connected' ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`}></span>
-                  <span>{wsStatus === 'connected' ? '24/7 VPS Active' : 'Connecting...'}</span>
+                <span className="hidden xl:inline-flex items-center space-x-1 px-2 py-0.5 text-[11px] font-medium rounded-full bg-dark-700 text-slate-300">
+                  <span className={`w-1.5 h-1.5 rounded-full ${wsStatus === 'connected' ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`}></span>
+                  <span>{wsStatus === 'connected' ? '24/7 VPS' : 'Connecting...'}</span>
                 </span>
               </div>
-              <p className="text-xs text-slate-400 hidden sm:block">Automated Crypto Derivatives Engine</p>
+              <p className="text-[10px] text-slate-400 hidden sm:block">Delta Derivatives Terminal</p>
             </div>
           </div>
 
-          {/* Navigation Tabs (Desktop) */}
-          <nav className="hidden md:flex items-center space-x-1 bg-dark-900/60 p-1 rounded-xl border border-dark-700/60">
+          {/* 2. Center: Navigation Tabs (Desktop / Large Screens) */}
+          <nav className="hidden lg:flex items-center space-x-1 bg-dark-900/80 p-1 rounded-xl border border-dark-700/60 flex-shrink-0">
             {[
               { id: 'dashboard', label: 'Dashboard' },
               { id: 'bots', label: 'Bots & Algos' },
@@ -49,9 +51,9 @@ export default function Header({
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                   activeTab === tab.id
-                    ? 'bg-brand-600 text-black font-semibold shadow-md'
+                    ? 'bg-brand-600 text-black shadow-md'
                     : 'text-slate-300 hover:text-white hover:bg-dark-700'
                 }`}
               >
@@ -60,95 +62,98 @@ export default function Header({
             ))}
           </nav>
 
-          {/* Mode Switcher: LIVE vs PAPER */}
-          {onModeChange && (
-            <div className="flex items-center bg-dark-900/90 p-1 rounded-xl border border-dark-700/80 shadow-inner">
-              <button
-                onClick={() => onModeChange('LIVE')}
-                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-extrabold tracking-wide transition-all ${
-                  tradingMode === 'LIVE'
-                    ? 'bg-emerald-500 text-black shadow-md shadow-emerald-500/30'
-                    : 'text-slate-400 hover:text-white hover:bg-dark-750'
-                }`}
-                title="Switch to Real Delta India Live Trading"
-              >
-                <span className={`w-2 h-2 rounded-full ${tradingMode === 'LIVE' ? 'bg-black animate-pulse' : 'bg-emerald-500'}`}></span>
-                <span>LIVE</span>
-              </button>
+          {/* 3. Right: Mode Switcher, Kill Switch, Settings & Auth Profile */}
+          <div className="flex items-center space-x-1.5 sm:space-x-2.5 flex-shrink-0">
+            
+            {/* Mode Switcher (LIVE vs PAPER) */}
+            {onModeChange && (
+              <div className="flex items-center bg-dark-900/90 p-0.5 sm:p-1 rounded-xl border border-dark-700 shadow-inner">
+                <button
+                  onClick={() => onModeChange('LIVE')}
+                  className={`flex items-center space-x-1 px-2 sm:px-2.5 py-1 rounded-lg text-[10px] sm:text-xs font-extrabold transition-all cursor-pointer ${
+                    tradingMode === 'LIVE'
+                      ? 'bg-emerald-500 text-black shadow-sm'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                  title="Switch to Real Live Trading"
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full ${tradingMode === 'LIVE' ? 'bg-black animate-pulse' : 'bg-emerald-500'}`}></span>
+                  <span>LIVE</span>
+                </button>
 
-              <button
-                onClick={() => onModeChange('PAPER')}
-                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-extrabold tracking-wide transition-all ${
-                  tradingMode === 'PAPER'
-                    ? 'bg-amber-400 text-black shadow-md shadow-amber-400/30'
-                    : 'text-slate-400 hover:text-white hover:bg-dark-750'
-                }`}
-                title="Switch to Risk-Free Virtual Simulation Paper Mode"
-              >
-                <span className={`w-2 h-2 rounded-full ${tradingMode === 'PAPER' ? 'bg-black' : 'bg-amber-400'}`}></span>
-                <span>PAPER</span>
-              </button>
-            </div>
-          )}
+                <button
+                  onClick={() => onModeChange('PAPER')}
+                  className={`flex items-center space-x-1 px-2 sm:px-2.5 py-1 rounded-lg text-[10px] sm:text-xs font-extrabold transition-all cursor-pointer ${
+                    tradingMode === 'PAPER'
+                      ? 'bg-amber-400 text-black shadow-sm'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                  title="Switch to Risk-Free Virtual Paper Trading"
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full ${tradingMode === 'PAPER' ? 'bg-black' : 'bg-amber-400'}`}></span>
+                  <span>PAPER</span>
+                </button>
+              </div>
+            )}
 
-          {/* Actions: Kill Switch & Settings */}
-          <div className="flex items-center space-x-2 sm:space-x-3">
+            {/* Kill Switch Button */}
             <button
               onClick={onKillSwitch}
-              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-red-600/20 text-red-400 hover:bg-red-600 hover:text-white border border-red-500/30 text-xs sm:text-sm font-semibold transition-all shadow-sm"
-              title="Emergency Kill Switch: liquidate all positions and stop bots"
+              className="flex items-center space-x-1 px-2 sm:px-2.5 py-1.5 rounded-lg bg-rose-600/20 text-rose-400 hover:bg-rose-600 hover:text-white border border-rose-500/30 text-[11px] sm:text-xs font-bold transition-all shadow-sm cursor-pointer"
+              title="Emergency Kill Switch: Stop all bots & close open positions"
             >
-              <ShieldAlert className="w-4 h-4" />
-              <span>KILL SWITCH</span>
+              <ShieldAlert className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-rose-400" />
+              <span className="hidden sm:inline">KILL SWITCH</span>
             </button>
 
+            {/* Settings Button */}
             <button
               onClick={onOpenSettings}
-              className="p-2 rounded-lg bg-dark-700 text-slate-300 hover:text-white hover:bg-dark-600 border border-dark-600 transition-all cursor-pointer"
+              className="p-1.5 sm:p-2 rounded-lg bg-dark-700 text-slate-300 hover:text-white hover:bg-dark-600 border border-dark-600 transition-all cursor-pointer"
               title="API Keys & Risk Settings"
             >
-              <Settings className="w-5 h-5" />
+              <Settings className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
             </button>
 
-            {/* Firebase Auth User Profile & Sign Out */}
+            {/* Admin User Profile & Sign Out */}
             {user && (
-              <div className="flex items-center space-x-2 pl-2 border-l border-dark-700">
-                <div className="hidden lg:flex flex-col text-right">
-                  <span className="text-[11px] font-semibold text-white max-w-[130px] truncate" title={user.email}>
+              <div className="flex items-center space-x-1.5 pl-1.5 sm:pl-2 border-l border-dark-700">
+                <div className="hidden xl:flex flex-col text-right">
+                  <span className="text-[11px] font-semibold text-white max-w-[110px] truncate" title={user.email}>
                     {user.email}
                   </span>
-                  <span className="text-[9px] text-emerald-400 font-mono flex items-center justify-end space-x-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block"></span>
-                    <span>Auth Protected</span>
+                  <span className="text-[9px] text-emerald-400 font-mono">
+                    Admin
                   </span>
                 </div>
                 <button
                   onClick={onSignOut}
-                  className="p-2 rounded-lg bg-dark-700/80 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 border border-dark-600 transition-all cursor-pointer"
+                  className="p-1.5 sm:p-2 rounded-lg bg-dark-700/80 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 border border-dark-600 transition-all cursor-pointer"
                   title={`Sign out (${user.email})`}
                 >
-                  <LogOut className="w-4 h-4" />
+                  <LogOut className="w-4 h-4 text-slate-300 hover:text-rose-400" />
                 </button>
               </div>
             )}
+
           </div>
 
         </div>
 
-        {/* Mobile Navigation Tabs */}
-        <div className="flex md:hidden border-t border-dark-700/60 py-2 space-x-1 overflow-x-auto">
+        {/* Mobile & Tablet Navigation Sub-Bar (< 1024px) */}
+        <div className="flex lg:hidden border-t border-dark-700/60 py-1.5 space-x-1 overflow-x-auto no-scrollbar">
           {[
             { id: 'dashboard', label: 'Dashboard' },
-            { id: 'bots', label: 'Bots' },
+            { id: 'bots', label: 'Bots & Algos' },
             { id: 'trades', label: 'Trades' },
-            { id: 'terminal', label: 'Logs' },
+            { id: 'terminal', label: 'Live Logs' },
           ].map(tab => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-medium text-center whitespace-nowrap transition-all ${
+              className={`flex-1 py-1 px-2.5 rounded-lg text-xs font-semibold text-center whitespace-nowrap transition-all ${
                 activeTab === tab.id
-                  ? 'bg-brand-600 text-black font-semibold'
+                  ? 'bg-brand-600 text-black shadow-sm'
                   : 'text-slate-400 hover:text-white hover:bg-dark-700'
               }`}
             >
