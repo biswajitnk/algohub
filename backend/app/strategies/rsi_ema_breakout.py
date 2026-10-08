@@ -29,7 +29,13 @@ class RSIEMABreakoutStrategy(BaseStrategy):
         self.rsi_period = int(self.params.get("rsi_period", 14))
         self.ema_period = int(self.params.get("ema_period", 20))
         self.past_dip_window = int(self.params.get("past_dip_window", 6))
-        self.min_today_gain_pct = float(self.params.get("min_today_gain_pct", 2.0))
+        raw_gain = self.params.get("min_today_gain_pct")
+        if raw_gain is not None:
+            self.min_today_gain_pct = float(raw_gain)
+        else:
+            tf = str(self.params.get("timeframe", "1d")).lower()
+            default_gains = {"15m": 0.3, "30m": 0.5, "1h": 0.7, "4h": 1.5, "1d": 2.0}
+            self.min_today_gain_pct = default_gains.get(tf, 2.0)
         
         raw_target = self.params.get("target_rr_ratio", 2.0)
         self.target_mode = "rr"

@@ -275,6 +275,8 @@ class AlgoEngine:
                 params = json.loads(bot.params)
             except Exception:
                 pass
+        if bot.timeframe and "timeframe" not in params:
+            params["timeframe"] = bot.timeframe
 
         strategy_instance = strat_cls(params)
         
