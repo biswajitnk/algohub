@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.backend
+    container_name: algohub_backend
+    restart: always
+    environment:
+      - DELTA_EXCHANGE_TYPE=india
+      - DATABASE_URL=sqlite+aiosqlite:////data/trading_bot.db
+    volumes:
+      - algo_data:/data
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.frontend
+    container_name: algohub_frontend
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  algo_data:
