@@ -95,14 +95,15 @@ export default function BotsManager({
     setShowCreateModal(false);
   };
 
-  const handleSelectFromScreener = (symbol, name, category) => {
+  const handleSelectFromScreener = (symbol, name, category, timeframe = '1d') => {
     const cleanSym = symbol.replace('XUSD', '').replace('BUSD', '');
+    const tfLabel = timeframe === '1d' ? 'Daily' : timeframe.toUpperCase();
     setNewBotData(prev => ({
       ...prev,
-      name: `${cleanSym} Daily Breakout Bot`,
+      name: `${cleanSym} ${tfLabel} Breakout Bot`,
       symbol: symbol,
       strategy_name: 'RSI_EMA_Breakout',
-      timeframe: '1d',
+      timeframe: timeframe,
       risk_pct: 2.0,
       target_rr_ratio: 2.0,
       stop_loss_pct: '',

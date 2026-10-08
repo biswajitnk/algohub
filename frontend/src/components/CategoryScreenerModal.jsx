@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   X, RefreshCw, CheckCircle2, XCircle, AlertCircle, TrendingUp, 
-  Shield, Zap, Sparkles, Plus, ExternalLink, Filter, BarChart2 
+  Shield, Zap, Sparkles, Plus, ExternalLink, Filter, BarChart2, Clock 
 } from 'lucide-react';
 import { api } from '../services/api';
 
@@ -12,18 +12,27 @@ const CATEGORIES = [
   { id: 'Growth & Tech', name: 'Growth & Tech (8)', label: 'Growth, Fintech & Defense' }
 ];
 
+const TIMEFRAMES = [
+  { id: '15m', label: '15m Intraday', short: '15m' },
+  { id: '30m', label: '30m Intraday', short: '30m' },
+  { id: '1h', label: '1 Hour Swing', short: '1h' },
+  { id: '4h', label: '4 Hours Trend', short: '4h' },
+  { id: '1d', label: '1 Day (Daily)', short: '1d' }
+];
+
 export default function CategoryScreenerModal({ isOpen, onClose, onSelectStockForBot }) {
   const [activeCategory, setActiveCategory] = useState('ALL');
+  const [selectedTimeframe, setSelectedTimeframe] = useState('1d');
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState([]);
   const [error, setError] = useState(null);
   const [filterMatchesOnly, setFilterMatchesOnly] = useState(false);
 
-  const fetchScan = async (cat = activeCategory) => {
+  const fetchScan = async (cat = activeCategory, tf = selectedTimeframe) => {
     setLoading(true);
     setError(null);
     try {
-      const data = await api.scanCategory(cat);
+      const data = await api.scanCategory(cat, tf);
       setResults(data || []);
     } catch (err) {
       console.error('Failed to scan category:', err);
@@ -35,9 +44,9 @@ export default function CategoryScreenerModal({ isOpen, onClose, onSelectStockFo
 
   useEffect(() => {
     if (isOpen) {
-      fetchScan(activeCategory);
+      fetchScan(activeCategory, selectedTimeframe);
     }
-  }, [isOpen, activeCategory]);
+  }, [isOpen, activeCategory, selectedTimeframe]);
 
   if (!isOpen) return null;
 
@@ -48,6 +57,13 @@ export default function CategoryScreenerModal({ isOpen, onClose, onSelectStockFo
   const displayedResults = filterMatchesOnly 
     ? results.filter(r => r.criteria_met_count >= 3)
     : results;
+
+  const currentMinGain = results[0]?.min_gain_pct ?? (
+    selectedTimeframe === '1d' ? 2.0 : 
+    selectedTimeframe === '4h' ? 1.5 : 
+    selectedTimeframe === '1h' ? 0.7 : 
+    selectedTimeframe === '30m' ? 0.5 : 0.3
+  );
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 animate-in fade-in duration-200">
@@ -65,13 +81,13 @@ export default function CategoryScreenerModal({ isOpen, onClose, onSelectStockFo
               </h2>
             </div>
             <p className="text-xs text-slate-400 mt-1">
-              Real-time daily evaluation of RSI 14 past-dip, 20 EMA, yesterday breakout &amp; 1:2 R:R Breakeven rules.
+              Real-time {selectedTimeframe === '1d' ? 'Daily' : selectedTimeframe.toUpperCase()} evaluation of RSI 14 past-dip, 20 EMA, {selectedTimeframe === '1d' ? 'yesterday' : 'previous candle'} breakout &amp; 1:2 R:R Breakeven rules.
             </p>
           </div>
 
           <div className="flex items-center space-x-2">
             <button
-              onClick={() => fetchScan(activeCategory)}
+              onClick={() => fetchScan(activeCategory, selectedTimeframe)}
               disabled={loading}
               className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-dark-750 hover:bg-dark-700 text-slate-200 text-xs font-semibold border border-dark-650 transition-all disabled:opacity-50"
             >
@@ -90,7 +106,7 @@ export default function CategoryScreenerModal({ isOpen, onClose, onSelectStockFo
         {/* Category Tabs & Stats Banner */}
         <div className="p-4 bg-dark-800/80 border-b border-dark-700/80 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            {/* Tabs */}
+            {/* Category Tabs */}
             <div className="flex flex-wrap gap-1.5">
               {CATEGORIES.map(cat => (
                 <button
@@ -107,18 +123,42 @@ export default function CategoryScreenerModal({ isOpen, onClose, onSelectStockFo
               ))}
             </div>
 
-            {/* Filter Toggle */}
-            <button
-              onClick={() => setFilterMatchesOnly(!filterMatchesOnly)}
-              className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all ${
-                filterMatchesOnly
-                  ? 'bg-emerald-950 text-emerald-300 border-emerald-700'
-                  : 'bg-dark-900 text-slate-400 border-dark-750 hover:text-slate-200'
-              }`}
-            >
-              <Filter className="w-3.5 h-3.5" />
-              <span>Show Hot Setups (&ge; 3/5) Only</span>
-            </button>
+            {/* Timeframe Selector & Filter Toggle */}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center space-x-1 bg-dark-900 p-1 rounded-xl border border-dark-700">
+                <span className="text-[11px] font-semibold text-slate-400 px-1.5 flex items-center space-x-1">
+                  <Clock className="w-3.5 h-3.5 text-brand-400" />
+                  <span className="hidden md:inline">Timeframe:</span>
+                </span>
+                {TIMEFRAMES.map(tf => (
+                  <button
+                    key={tf.id}
+                    onClick={() => setSelectedTimeframe(tf.id)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                      selectedTimeframe === tf.id
+                        ? 'bg-brand-500 text-black shadow-sm font-extrabold'
+                        : 'text-slate-400 hover:text-white hover:bg-dark-800'
+                    }`}
+                    title={tf.label}
+                  >
+                    {tf.short}
+                  </button>
+                ))}
+              </div>
+
+              {/* Filter Toggle */}
+              <button
+                onClick={() => setFilterMatchesOnly(!filterMatchesOnly)}
+                className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                  filterMatchesOnly
+                    ? 'bg-emerald-950 text-emerald-300 border-emerald-700'
+                    : 'bg-dark-900 text-slate-400 border-dark-750 hover:text-slate-200'
+                }`}
+              >
+                <Filter className="w-3.5 h-3.5" />
+                <span>Show Hot (&ge; 3/5)</span>
+              </button>
+            </div>
           </div>
 
           {/* KPI Stats Bar */}
@@ -174,8 +214,8 @@ export default function CategoryScreenerModal({ isOpen, onClose, onSelectStockFo
                   <tr>
                     <th className="py-3 px-3">Stock Token</th>
                     <th className="py-3 px-3">Price &amp; 24h</th>
-                    <th className="py-3 px-2 text-center" title="Condition 1: RSI 14 dipped below 50 in past 6 Days">
-                      1. 6D Dip &lt;50
+                    <th className="py-3 px-2 text-center" title={`Condition 1: RSI 14 dipped below 50 in past 6 candles (${selectedTimeframe})`}>
+                      1. {selectedTimeframe === '1d' ? '6D' : selectedTimeframe === '1h' ? '6H' : '6-Bar'} Dip &lt;50
                     </th>
                     <th className="py-3 px-2 text-center" title="Condition 2: Current RSI 14 crosses above 50">
                       2. RSI &ge;50
@@ -183,11 +223,11 @@ export default function CategoryScreenerModal({ isOpen, onClose, onSelectStockFo
                     <th className="py-3 px-2 text-center" title="Condition 3: Price crosses above 20 EMA">
                       3. &gt;20 EMA
                     </th>
-                    <th className="py-3 px-2 text-center" title="Condition 4: Price breaks above yesterday's High">
-                      4. &gt;Yday High
+                    <th className="py-3 px-2 text-center" title={`Condition 4: Price breaks above ${selectedTimeframe === '1d' ? "yesterday's" : "previous candle's"} High`}>
+                      4. &gt;{selectedTimeframe === '1d' ? 'Yday' : 'Prev'} High
                     </th>
-                    <th className="py-3 px-2 text-center" title="Condition 5: Today gain exceeds +2.0%">
-                      5. Gain &gt;2%
+                    <th className="py-3 px-2 text-center" title="Condition 5: Candle gain exceeds threshold">
+                      5. Gain &gt;{currentMinGain}%
                     </th>
                     <th className="py-3 px-3 text-center">Score</th>
                     <th className="py-3 px-3 text-right">SL &bull; 1:2 Target</th>
@@ -346,7 +386,7 @@ export default function CategoryScreenerModal({ isOpen, onClose, onSelectStockFo
                         <td className="py-3 px-3 text-center">
                           <button
                             onClick={() => {
-                              onSelectStockForBot(item.symbol, item.name, item.category);
+                              onSelectStockForBot(item.symbol, item.name, item.category, selectedTimeframe);
                               onClose();
                             }}
                             className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1 mx-auto ${

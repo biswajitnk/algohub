@@ -92,8 +92,8 @@ export const api = {
     request(`/market/tickers/batch${symbols ? `?symbols=${encodeURIComponent(symbols)}` : ''}`),
   getCandles: (symbol, resolution = '15m', count = 60) => 
     request(`/market/candles/${symbol}?resolution=${resolution}&count=${count}`),
-  scanCategory: (category = 'ALL') => 
-    request(`/market/scan-category?category=${encodeURIComponent(category)}`),
+  scanCategory: (category = 'ALL', timeframe = '1d') => 
+    request(`/market/scan-category?category=${encodeURIComponent(category)}&timeframe=${encodeURIComponent(timeframe)}`),
 
   // Settings & Risk
   getSettings: () => request('/settings'),

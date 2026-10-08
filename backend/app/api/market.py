@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Query
 import asyncio
 from typing import List, Dict, Any, Optional
 from app.engine import engine
+from app.delta_client import DeltaExchangeClient
 
 router = APIRouter(prefix="/market", tags=["Market Data"])
 
@@ -115,9 +116,23 @@ from app.strategies.rsi_ema_breakout import RSIEMABreakoutStrategy
 from app.categories import CATEGORY_STOCKS
 
 @router.get("/scan-category")
-async def scan_category(category: str = Query("ALL", description="ALL, MegaCap, Semis & AI, Growth & Tech")):
-    """Scan stocks across category and evaluate RSI 14 & 20 EMA criteria."""
-    strat = RSIEMABreakoutStrategy()
+async def scan_category(
+    category: str = Query("ALL", description="ALL, MegaCap, Semis & AI, Growth & Tech"),
+    timeframe: str = Query("1d", description="Resolution/Timeframe: 5m, 15m, 30m, 1h, 2h, 4h, 1d")
+):
+    """Scan stocks across category and evaluate RSI 14 & 20 EMA criteria for chosen timeframe."""
+    default_min_gains = {
+        "5m": 0.2,
+        "15m": 0.3,
+        "30m": 0.5,
+        "1h": 0.7,
+        "2h": 1.0,
+        "4h": 1.5,
+        "1d": 2.0,
+    }
+    tf = timeframe.lower().strip()
+    min_gain = default_min_gains.get(tf, 2.0)
+    strat = RSIEMABreakoutStrategy(params={"min_today_gain_pct": min_gain})
     
     target_stocks = []
     if category == "ALL":
@@ -132,10 +147,12 @@ async def scan_category(category: str = Query("ALL", description="ALL, MegaCap, 
             for s in stocks:
                 target_stocks.append({**s, "category": cat})
 
+    client = engine.delta_client or DeltaExchangeClient(exchange_type="india")
+
     async def _scan_single(item):
         sym = item["symbol"]
         try:
-            candles = await engine.delta_client.get_candles(symbol=sym, resolution="1d", count=45)
+            candles = await client.get_candles(symbol=sym, resolution=tf, count=45)
             if not candles or len(candles) < 25:
                 return None
             
@@ -161,7 +178,9 @@ async def scan_category(category: str = Query("ALL", description="ALL, MegaCap, 
                 "indicators": ind,
                 "suggested_sl": signal.get("suggested_sl"),
                 "target_1_2": signal.get("target_1_2"),
-                "reason": signal.get("reason", "")
+                "reason": signal.get("reason", ""),
+                "timeframe": tf,
+                "min_gain_pct": min_gain
             }
         except Exception:
             return None
