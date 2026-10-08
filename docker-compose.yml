@@ -20,7 +20,7 @@ services:
     container_name: algohub_frontend
     restart: always
     ports:
-      - "3000:80"
+      - "3001:80"
     depends_on:
       - backend
 
