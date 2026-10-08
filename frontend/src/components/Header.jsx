@@ -1,5 +1,5 @@
 import React from 'react';
-import { Activity, ShieldAlert, Settings, Terminal, Zap, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Activity, ShieldAlert, Settings, Terminal, Zap, CheckCircle2, AlertTriangle, LogOut, User } from 'lucide-react';
 
 export default function Header({ 
   stats, 
@@ -9,7 +9,9 @@ export default function Header({
   activeTab,
   setActiveTab,
   tradingMode = 'LIVE',
-  onModeChange
+  onModeChange,
+  user,
+  onSignOut
 }) {
   return (
     <header className="bg-dark-800 border-b border-dark-700 sticky top-0 z-40 backdrop-blur-md bg-opacity-90">
@@ -102,11 +104,33 @@ export default function Header({
 
             <button
               onClick={onOpenSettings}
-              className="p-2 rounded-lg bg-dark-700 text-slate-300 hover:text-white hover:bg-dark-600 border border-dark-600 transition-all"
+              className="p-2 rounded-lg bg-dark-700 text-slate-300 hover:text-white hover:bg-dark-600 border border-dark-600 transition-all cursor-pointer"
               title="API Keys & Risk Settings"
             >
               <Settings className="w-5 h-5" />
             </button>
+
+            {/* Firebase Auth User Profile & Sign Out */}
+            {user && (
+              <div className="flex items-center space-x-2 pl-2 border-l border-dark-700">
+                <div className="hidden lg:flex flex-col text-right">
+                  <span className="text-[11px] font-semibold text-white max-w-[130px] truncate" title={user.email}>
+                    {user.email}
+                  </span>
+                  <span className="text-[9px] text-emerald-400 font-mono flex items-center justify-end space-x-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block"></span>
+                    <span>Auth Protected</span>
+                  </span>
+                </div>
+                <button
+                  onClick={onSignOut}
+                  className="p-2 rounded-lg bg-dark-700/80 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 border border-dark-600 transition-all cursor-pointer"
+                  title={`Sign out (${user.email})`}
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </div>
+            )}
           </div>
 
         </div>

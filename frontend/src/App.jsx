@@ -16,9 +16,13 @@ import BacktestModal from './components/BacktestModal';
 import RiskDisclaimer from './components/RiskDisclaimer';
 import TradingViewWidget from './components/TradingViewWidget';
 import Watchlist from './components/Watchlist';
+import LoginScreen from './components/LoginScreen';
+import { auth, onAuthStateChanged, signOut } from './services/firebase';
 import { api } from './services/api';
 
 export default function App() {
+  const [currentUser, setCurrentUser] = useState(null);
+  const [authChecking, setAuthChecking] = useState(true);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [wsStatus, setWsStatus] = useState('disconnected');
   const [loading, setLoading] = useState(true);
@@ -85,7 +89,18 @@ export default function App() {
     }
   }, []);
 
+  // Listen for Firebase Auth State Changes
   useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+      setAuthChecking(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!currentUser) return;
+
     loadData(tradingMode);
 
     // Connect WebSocket
@@ -114,7 +129,7 @@ export default function App() {
       cleanupWs();
       clearInterval(pollInterval);
     };
-  }, [tradingMode, loadData]);
+  }, [currentUser, tradingMode, loadData]);
 
   // Actions
   const handleToggleBot = async (botId) => {
@@ -178,6 +193,25 @@ export default function App() {
     setIsBacktestOpen(true);
   };
 
+  // Auth Loading Screen while checking Firebase token
+  if (authChecking) {
+    return (
+      <div className="min-h-screen bg-[#07090e] flex items-center justify-center p-4">
+        <div className="text-center space-y-3">
+          <div className="w-10 h-10 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-xs text-slate-400 font-mono tracking-wide">
+            Authenticating with AlgoHub Terminal...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Auth Gate: Unauthenticated users MUST sign in before seeing the terminal
+  if (!currentUser) {
+    return <LoginScreen />;
+  }
+
   return (
     <div className="min-h-screen bg-dark-900 flex flex-col">
       {/* Header */}
@@ -190,6 +224,8 @@ export default function App() {
         setActiveTab={setActiveTab}
         tradingMode={tradingMode}
         onModeChange={handleModeChange}
+        user={currentUser}
+        onSignOut={() => signOut(auth)}
       />
 
       {/* Main Content Area */}
