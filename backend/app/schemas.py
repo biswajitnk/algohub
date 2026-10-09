@@ -60,6 +60,7 @@ class TradeResponse(BaseModel):
     leverage: int
     stop_loss: Optional[float]
     take_profit: Optional[float]
+    liquidation_price: Optional[float] = None
     pnl: float
     pnl_pct: float
     status: str

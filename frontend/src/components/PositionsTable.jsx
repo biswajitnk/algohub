@@ -113,10 +113,24 @@ export default function PositionsTable({ positions, onCloseTrade, onRefresh, loa
                       )}
                     </td>
                     <td className="py-3 px-3 text-slate-300">
-                      ${pos.size.toFixed(0)} <span className="text-xs text-slate-400 font-mono">({pos.leverage}x)</span>
+                      <span className="font-mono font-medium">${Number(pos.size || 0).toFixed(2)}</span>
+                      <span className="text-[10px] text-slate-400 font-mono block">
+                        ({pos.contracts} {pos.contracts === 1 ? 'lot' : 'lots'} • {pos.leverage}x)
+                      </span>
                     </td>
-                    <td className="py-3 px-3 text-rose-400 font-mono text-xs">
-                      {pos.stop_loss ? `$${pos.stop_loss.toLocaleString()}` : '-'}
+                    <td className="py-3 px-3 font-mono text-xs">
+                      {pos.stop_loss ? (
+                        <span className="text-rose-400">${pos.stop_loss.toLocaleString()}</span>
+                      ) : (
+                        <div>
+                          <span className="text-slate-400">-</span>
+                          {pos.liquidation_price && (
+                            <span className="text-[10px] text-amber-500/90 block font-mono" title="Delta Exchange Liquidation Price">
+                              Liq: ${pos.liquidation_price.toFixed(3)}
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </td>
                     <td className="py-3 px-3 text-emerald-400 font-mono text-xs">
                       {pos.take_profit ? `$${pos.take_profit.toLocaleString()}` : '-'}

@@ -114,11 +114,29 @@ async def get_open_trades(
                 if not already_in_db:
                     size_contracts = abs(int(float(p.get("size", 1))))
                     margin = float(p.get("margin", 1) or 1)
+                    funding = float(p.get("realized_funding", 0) or 0)
                     lev = int(float(p.get("product", {}).get("default_leverage", 10) or 10))
-                    unrealized_pnl = float(p.get("unrealized_pnl", 0) or 0)
-                    pnl_pct = round((unrealized_pnl / max(margin, 0.01)) * 100, 2)
+                    raw_u_pnl = float(p.get("unrealized_pnl", 0) or 0)
+                    
+                    contract_val = float(p.get("product", {}).get("contract_value", 0.01) or 0.01)
+                    entry_p = float(p.get("entry_price", 0) or 0)
+                    mark_p = float(p.get("mark_price") or entry_p or 0)
+                    
+                    # Exact Delta Notional in USD (55 lot * 0.01 * 257.85 = 141.82 USD)
+                    notional_usd = round(size_contracts * contract_val * (mark_p or entry_p), 2)
+                    
+                    # Exact Delta ROE formula based on isolated position margin net of funding
+                    margin_base = max(margin + funding, (size_contracts * contract_val * entry_p) / lev if lev > 0 else margin)
+                    pnl_pct = round((raw_u_pnl / max(margin_base, 0.01)) * 100, 2)
+                    
+                    # Precise rounding for display: -0.715 -> -0.72
+                    if raw_u_pnl < 0:
+                        disp_pnl = -round(abs(raw_u_pnl) + 0.0001, 2)
+                    else:
+                        disp_pnl = round(raw_u_pnl + 0.0001, 2)
+
+                    liq_price = float(p.get("liquidation_price", 0)) if p.get("liquidation_price") else None
                     sym = p.get("product_symbol") or p.get("product", {}).get("symbol", "UNKNOWN")
-                    mark_p = float(p.get("mark_price") or p.get("entry_price") or 0)
 
                     # Check which algo is assigned to this symbol
                     bot = bots_map.get(sym.upper())
@@ -142,12 +160,13 @@ async def get_open_trades(
                         entry_price=float(p.get("entry_price", 0) or 0),
                         current_price=round(mark_p, 2) if mark_p > 0 else None,
                         exit_price=None,
-                        size=round(margin * lev, 2),
+                        size=notional_usd if notional_usd > 0 else round(margin * lev, 2),
                         contracts=size_contracts,
                         leverage=lev,
-                        stop_loss=float(p.get("liquidation_price", 0)) if p.get("liquidation_price") else None,
+                        stop_loss=None,  # Reflects Delta TP/SL: '-' when no bracket order is set
                         take_profit=None,
-                        pnl=round(unrealized_pnl, 2),
+                        liquidation_price=round(liq_price, 3) if liq_price else None,
+                        pnl=disp_pnl,
                         pnl_pct=pnl_pct,
                         status="OPEN",
                         exit_reason=None,
