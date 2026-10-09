@@ -1,0 +1,29 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Authenticated users can read and manage their own trading data
+    match /users/{userId}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Trade History collection
+    match /trades/{tradeId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Active Positions collection
+    match /positions/{posId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Bot Configurations collection
+    match /bots/{botId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Equity and Performance Stats collection
+    match /stats/{statId} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}

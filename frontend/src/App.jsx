@@ -18,6 +18,7 @@ import TradingViewWidget from './components/TradingViewWidget';
 import Watchlist from './components/Watchlist';
 import LoginScreen from './components/LoginScreen';
 import { auth, onAuthStateChanged, signOut } from './services/firebase';
+import { firebaseSync } from './services/firebaseSync';
 import { api } from './services/api';
 
 export default function App() {
@@ -71,6 +72,13 @@ export default function App() {
       setPositions(openTrades || []);
       setTrades(closedTrades || []);
 
+      // Real-time Cloud Sync to Firebase Firestore
+      if (auth.currentUser) {
+        if (openTrades) firebaseSync.syncPositions(openTrades, auth.currentUser);
+        if (closedTrades) firebaseSync.syncTrades(closedTrades, auth.currentUser);
+        if (statsData) firebaseSync.syncStats(statsData, auth.currentUser);
+      }
+
       if (equityHistory && equityHistory.length > 0) {
         setEquityData(equityHistory.map(item => ({
           time: new Date(item.timestamp).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit' }),
@@ -109,12 +117,21 @@ export default function App() {
         // Append log
         setLogs(prev => [...prev.slice(-150), message]);
 
-        // Real-time reactive updates
+        // Real-time reactive updates & Firestore Cloud Sync
         if (message.type === 'TRADE_OPEN' || message.type === 'TRADE_CLOSE') {
           // Re-fetch open positions and dashboard stats
-          api.getOpenTrades(tradingMode).then(setPositions).catch(() => {});
-          api.getTrades(null, tradingMode).then(setTrades).catch(() => {});
-          api.getStats(tradingMode).then(setStats).catch(() => {});
+          api.getOpenTrades(tradingMode).then(pos => {
+            setPositions(pos || []);
+            if (auth.currentUser) firebaseSync.syncPositions(pos || [], auth.currentUser);
+          }).catch(() => {});
+          api.getTrades(null, tradingMode).then(tr => {
+            setTrades(tr || []);
+            if (auth.currentUser) firebaseSync.syncTrades(tr || [], auth.currentUser);
+          }).catch(() => {});
+          api.getStats(tradingMode).then(st => {
+            setStats(st);
+            if (auth.currentUser) firebaseSync.syncStats(st, auth.currentUser);
+          }).catch(() => {});
         }
       },
       (status) => setWsStatus(status)

@@ -31,6 +31,10 @@ export default function Header({
                 <span className="px-1.5 py-0.2 sm:px-2 sm:py-0.5 text-[10px] sm:text-xs font-bold rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800 uppercase">
                   {stats?.exchange_type || 'India'}
                 </span>
+                <span className="hidden sm:inline-flex items-center space-x-1 px-2 py-0.5 text-[10px] sm:text-[11px] font-semibold rounded-full bg-emerald-950/80 text-emerald-400 border border-emerald-800/60 shadow-sm" title="Connected to Firebase Cloud Firestore: algohub-bot-2026">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                  <span>Firebase Cloud</span>
+                </span>
                 <span className="hidden xl:inline-flex items-center space-x-1 px-2 py-0.5 text-[11px] font-medium rounded-full bg-dark-700 text-slate-300">
                   <span className={`w-1.5 h-1.5 rounded-full ${wsStatus === 'connected' ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`}></span>
                   <span>{wsStatus === 'connected' ? '24/7 VPS' : 'Connecting...'}</span>
