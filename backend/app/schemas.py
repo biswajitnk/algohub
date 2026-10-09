@@ -53,6 +53,7 @@ class TradeResponse(BaseModel):
     side: str
     mode: str
     entry_price: float
+    current_price: Optional[float] = None
     exit_price: Optional[float]
     size: float
     contracts: int

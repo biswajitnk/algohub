@@ -29,7 +29,7 @@ class AlgoEngine:
     def __init__(self):
         self.is_running = False
         self._task: Optional[asyncio.Task] = None
-        self.delta_client: Optional[DeltaExchangeClient] = None
+        self.delta_client: DeltaExchangeClient = DeltaExchangeClient(exchange_type="india")
         self.strategy_registry = {
             "Supertrend": SupertrendStrategy,
             "EMA_Crossover": EMACrossoverStrategy,
@@ -587,57 +587,65 @@ class AlgoEngine:
     async def _take_equity_snapshot(self):
         """Record periodic equity snapshot for the PnL performance curve."""
         async with AsyncSessionLocal() as session:
-            # Sum realized PnL
-            pnl_res = await session.execute(select(func.sum(Trade.pnl)).where(Trade.status == "CLOSED"))
-            realized_pnl = pnl_res.scalar() or 0.0
+            settings_res = await session.execute(select(AppSettings).order_by(AppSettings.id.desc()).limit(1))
+            settings_rec = settings_res.scalars().first()
+            paper_bal = settings_rec.paper_balance if settings_rec else 10000.0
 
-            # Sum unrealized PnL from open trades
-            open_trades_res = await session.execute(select(Trade).where(Trade.status == "OPEN"))
-            open_trades = open_trades_res.scalars().all()
+            # 1. PAPER snapshot
+            paper_pnl_res = await session.execute(
+                select(func.sum(Trade.pnl)).where(and_(Trade.status == "CLOSED", Trade.mode == "PAPER"))
+            )
+            paper_realized_pnl = paper_pnl_res.scalar() or 0.0
 
-            unrealized_pnl = 0.0
-            for t in open_trades:
+            paper_trades_res = await session.execute(
+                select(Trade).where(and_(Trade.status == "OPEN", Trade.mode == "PAPER"))
+            )
+            paper_open_trades = paper_trades_res.scalars().all()
+
+            paper_unrealized_pnl = 0.0
+            for t in paper_open_trades:
                 try:
                     ticker = await self.delta_client.get_ticker(t.symbol)
-                    curr = float(ticker.get("close", t.entry_price))
+                    curr = float(ticker.get("mark_price") or ticker.get("close", t.entry_price))
                     pnl_u, _ = risk_manager.calculate_pnl(t.side, t.entry_price, curr, t.size, t.leverage)
-                    unrealized_pnl += pnl_u
+                    paper_unrealized_pnl += pnl_u
                 except Exception:
                     pass
 
-            settings_res = await session.execute(select(AppSettings).order_by(AppSettings.id.desc()).limit(1))
-            settings_rec = settings_res.scalars().first()
-            is_live_connected = bool(settings_rec and settings_rec.delta_api_key and settings_rec.delta_api_secret)
+            paper_snapshot = EquitySnapshot(
+                total_balance=round(paper_bal + paper_unrealized_pnl, 2),
+                available_balance=round(paper_bal, 2),
+                realized_pnl=round(paper_realized_pnl, 2),
+                unrealized_pnl=round(paper_unrealized_pnl, 2),
+                mode="PAPER"
+            )
+            session.add(paper_snapshot)
 
+            # 2. LIVE snapshot (if exchange connected)
+            is_live_connected = bool(settings_rec and settings_rec.delta_api_key and settings_rec.delta_api_secret)
             if is_live_connected and self.delta_client:
                 try:
                     delta_bal = await self.delta_client.get_total_balance_usd()
-                    live_pos = await self.delta_client.get_positions()
-                    live_u_pnl = sum([float(p.get("unrealized_pnl", 0) or 0) for p in live_pos])
+                    live_bal = float(delta_bal.get("total_balance", 0.0))
+                    if live_bal > 0:
+                        live_pos = await self.delta_client.get_positions()
+                        live_u_pnl = sum([float(p.get("unrealized_pnl", 0) or 0) for p in live_pos])
+                        live_pnl_res = await session.execute(
+                            select(func.sum(Trade.pnl)).where(and_(Trade.status == "CLOSED", Trade.mode == "LIVE"))
+                        )
+                        live_realized_pnl = live_pnl_res.scalar() or 0.0
 
-                    snapshot = EquitySnapshot(
-                        total_balance=round(delta_bal["total_balance"] + live_u_pnl, 2),
-                        available_balance=round(delta_bal["available_balance"], 2),
-                        realized_pnl=round(realized_pnl, 2),
-                        unrealized_pnl=round(live_u_pnl, 2),
-                        mode="LIVE"
-                    )
-                    session.add(snapshot)
-                    await session.commit()
-                    return
+                        live_snapshot = EquitySnapshot(
+                            total_balance=round(live_bal + live_u_pnl, 2),
+                            available_balance=round(float(delta_bal.get("available_balance", 0.0)), 2),
+                            realized_pnl=round(live_realized_pnl, 2),
+                            unrealized_pnl=round(live_u_pnl, 2),
+                            mode="LIVE"
+                        )
+                        session.add(live_snapshot)
                 except Exception:
                     pass
 
-            paper_bal = settings_rec.paper_balance if settings_rec else 10000.0
-
-            snapshot = EquitySnapshot(
-                total_balance=round(paper_bal + unrealized_pnl, 2),
-                available_balance=round(paper_bal, 2),
-                realized_pnl=round(realized_pnl, 2),
-                unrealized_pnl=round(unrealized_pnl, 2),
-                mode="PAPER"
-            )
-            session.add(snapshot)
             await session.commit()
 
 engine = AlgoEngine()

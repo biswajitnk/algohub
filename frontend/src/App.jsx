@@ -63,7 +63,7 @@ export default function App() {
         api.getBots().catch(() => []),
         api.getOpenTrades(modeToUse).catch(() => []),
         api.getTrades(null, modeToUse).catch(() => []),
-        api.getEquityCurve(7).catch(() => [])
+        api.getEquityCurve(7, modeToUse).catch(() => [])
       ]);
 
       if (statsData) setStats(statsData);
@@ -120,10 +120,10 @@ export default function App() {
       (status) => setWsStatus(status)
     );
 
-    // Auto polling fallback every 15s
+    // Auto polling fallback every 6s for responsive live prices & PnL
     const pollInterval = setInterval(() => {
       loadData(tradingMode);
-    }, 15000);
+    }, 6000);
 
     return () => {
       cleanupWs();
@@ -413,8 +413,9 @@ export default function App() {
             <PositionsTable 
               positions={positions} 
               onCloseTrade={handleClosePosition}
-              onRefresh={loadData}
+              onRefresh={() => loadData(tradingMode)}
               loading={loading}
+              onSelectSymbol={(sym) => setChartSymbol(sym)}
             />
 
           </div>

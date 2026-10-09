@@ -9,6 +9,8 @@ from app.models import Trade, BotConfig, EquitySnapshot, AppSettings
 from app.schemas import DashboardStatsResponse, EquitySnapshotResponse
 from app.engine import engine
 
+from app.risk_manager import risk_manager
+
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
 @router.get("/stats", response_model=DashboardStatsResponse)
@@ -31,6 +33,19 @@ async def get_dashboard_stats(
     # Normalize mode
     active_mode = mode.upper() if mode else None
 
+    # Calculate live unrealized PnL for paper open positions
+    paper_unrealized_pnl = 0.0
+    if active_mode in ["PAPER", None]:
+        paper_trades_res = await db.execute(select(Trade).where(and_(Trade.status == "OPEN", Trade.mode == "PAPER")))
+        for pt in paper_trades_res.scalars().all():
+            try:
+                ticker = await engine.delta_client.get_ticker(pt.symbol)
+                curr_p = float(ticker.get("mark_price") or ticker.get("close") or pt.entry_price)
+                pnl_u, _ = risk_manager.calculate_pnl(pt.side, pt.entry_price, curr_p, pt.size, pt.leverage)
+                paper_unrealized_pnl += pnl_u
+            except Exception:
+                pass
+
     # If exchange is connected and not strictly PAPER mode, fetch real account balance and positions from Delta Exchange India
     if active_mode != "PAPER" and exchange_connected and engine.delta_client:
         try:
@@ -50,19 +65,19 @@ async def get_dashboard_stats(
             pass
 
     if active_mode == "PAPER":
-        total_balance = paper_balance
+        applied_unrealized = paper_unrealized_pnl
+        total_balance = paper_balance + applied_unrealized
         available_balance = paper_balance
-        applied_live_unrealized = 0.0
         applied_live_open = 0
     elif active_mode == "LIVE":
-        total_balance = live_total
+        applied_unrealized = live_unrealized_pnl
+        total_balance = live_total + applied_unrealized
         available_balance = live_avail
-        applied_live_unrealized = live_unrealized_pnl
         applied_live_open = live_open_count
     else:
-        total_balance = live_total if (exchange_connected and live_total > 0) else paper_balance
+        applied_unrealized = live_unrealized_pnl if (exchange_connected and live_total > 0) else paper_unrealized_pnl
+        total_balance = (live_total if (exchange_connected and live_total > 0) else paper_balance) + applied_unrealized
         available_balance = live_avail if (exchange_connected and live_avail > 0) else paper_balance
-        applied_live_unrealized = live_unrealized_pnl
         applied_live_open = live_open_count
 
     # 2. Trades stats from DB
@@ -93,7 +108,7 @@ async def get_dashboard_stats(
 
     today_pnl_res = await db.execute(today_pnl_query)
     today_realized_pnl = today_pnl_res.scalar() or 0.0
-    today_pnl = today_realized_pnl + applied_live_unrealized
+    today_pnl = today_realized_pnl + applied_unrealized
     today_pnl_pct = (today_pnl / total_balance * 100.0) if total_balance > 0 else 0.0
 
     # 4. Open positions count
@@ -121,7 +136,7 @@ async def get_dashboard_stats(
         available_balance=round(available_balance, 2),
         today_pnl=round(today_pnl, 2),
         today_pnl_pct=round(today_pnl_pct, 2),
-        all_time_pnl=round(all_time_pnl + applied_live_unrealized, 2),
+        all_time_pnl=round(all_time_pnl + applied_unrealized, 2),
         total_trades=total_trades,
         win_trades=win_trades,
         loss_trades=loss_trades,
@@ -140,11 +155,56 @@ async def get_dashboard_stats(
 @router.get("/equity-curve", response_model=List[EquitySnapshotResponse])
 async def get_equity_curve(
     days: int = 7,
+    mode: Optional[str] = Query(None, description="Filter by PAPER or LIVE"),
     db: AsyncSession = Depends(get_db)
 ):
-    """Fetch historical equity snapshots for the performance chart."""
+    """Fetch historical equity snapshots for the performance chart with mode separation."""
+    active_mode = mode.upper() if mode else "PAPER"
     cutoff = datetime.utcnow() - timedelta(days=days)
-    query = select(EquitySnapshot).where(EquitySnapshot.timestamp >= cutoff).order_by(EquitySnapshot.timestamp.asc()).limit(200)
+    query = select(EquitySnapshot).where(
+        and_(
+            EquitySnapshot.timestamp >= cutoff,
+            EquitySnapshot.mode == active_mode,
+            EquitySnapshot.total_balance > 0
+        )
+    ).order_by(EquitySnapshot.timestamp.asc()).limit(200)
     res = await db.execute(query)
-    snapshots = res.scalars().all()
+    snapshots = list(res.scalars().all())
+
+    if not snapshots:
+        # Fallback baseline points so the chart renders a smooth line at the actual account balance
+        settings_res = await db.execute(select(AppSettings).order_by(AppSettings.id.desc()).limit(1))
+        settings = settings_res.scalars().first()
+        base_bal = 10000.0
+        if active_mode == "PAPER":
+            base_bal = float(settings.paper_balance if settings else 10000.0)
+        elif active_mode == "LIVE":
+            if engine.delta_client:
+                try:
+                    delta_bal = await engine.delta_client.get_total_balance_usd()
+                    base_bal = float(delta_bal.get("total_balance", 0.0))
+                except Exception:
+                    base_bal = 0.0
+
+        snapshots = [
+            EquitySnapshot(
+                id=1,
+                timestamp=datetime.utcnow() - timedelta(hours=2),
+                total_balance=base_bal,
+                available_balance=base_bal,
+                realized_pnl=0.0,
+                unrealized_pnl=0.0,
+                mode=active_mode
+            ),
+            EquitySnapshot(
+                id=2,
+                timestamp=datetime.utcnow(),
+                total_balance=base_bal,
+                available_balance=base_bal,
+                realized_pnl=0.0,
+                unrealized_pnl=0.0,
+                mode=active_mode
+            )
+        ]
+
     return snapshots

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { TrendingUp, TrendingDown, XCircle, Shield, AlertCircle, RefreshCw } from 'lucide-react';
 
-export default function PositionsTable({ positions, onCloseTrade, onRefresh, loading }) {
+export default function PositionsTable({ positions, onCloseTrade, onRefresh, loading, onSelectSymbol }) {
   const [closingId, setClosingId] = useState(null);
 
   const handleClose = async (tradeId) => {
@@ -45,6 +45,7 @@ export default function PositionsTable({ positions, onCloseTrade, onRefresh, loa
                 <th className="py-2.5 px-3">Side</th>
                 <th className="py-2.5 px-3">Mode</th>
                 <th className="py-2.5 px-3">Entry Price</th>
+                <th className="py-2.5 px-3">Delta Live Price</th>
                 <th className="py-2.5 px-3">Size / Lev</th>
                 <th className="py-2.5 px-3">Stop Loss</th>
                 <th className="py-2.5 px-3">Take Profit</th>
@@ -56,11 +57,20 @@ export default function PositionsTable({ positions, onCloseTrade, onRefresh, loa
               {positions.map((pos) => {
                 const isLong = pos.side.toLowerCase() === 'buy';
                 const isWin = (pos.pnl || 0) >= 0;
+                const livePrice = pos.current_price || pos.entry_price;
+                const priceDiffPct = pos.entry_price > 0 ? ((livePrice - pos.entry_price) / pos.entry_price) * 100 : 0;
+                const isPriceUp = isLong ? priceDiffPct >= 0 : priceDiffPct <= 0;
 
                 return (
                   <tr key={pos.id} className="hover:bg-dark-700/30 transition-colors">
                     <td className="py-3 px-4 font-bold text-white font-mono text-sm">
-                      {pos.symbol}
+                      <button
+                        onClick={() => onSelectSymbol && onSelectSymbol(pos.symbol)}
+                        className="text-white hover:text-brand-400 hover:underline flex items-center space-x-1 group"
+                        title="Click to view TradingView chart"
+                      >
+                        <span>{pos.symbol}</span>
+                      </button>
                     </td>
                     <td className="py-3 px-3">
                       <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-dark-900 border border-emerald-800/50 text-emerald-400 shadow-sm">
@@ -86,6 +96,22 @@ export default function PositionsTable({ positions, onCloseTrade, onRefresh, loa
                     <td className="py-3 px-3 font-mono text-slate-200">
                       ${pos.entry_price.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                     </td>
+                    <td className="py-3 px-3 font-mono">
+                      {pos.current_price ? (
+                        <div className="flex items-center space-x-1.5">
+                          <span className={`font-semibold ${isPriceUp ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            ${pos.current_price.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                          </span>
+                          <span className={`text-[10px] px-1 py-0.5 rounded font-mono ${
+                            isPriceUp ? 'bg-emerald-950 text-emerald-400' : 'bg-rose-950 text-rose-400'
+                          }`}>
+                            {priceDiffPct >= 0 ? '+' : ''}{priceDiffPct.toFixed(2)}%
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-slate-400 text-xs italic">Fetching...</span>
+                      )}
+                    </td>
                     <td className="py-3 px-3 text-slate-300">
                       ${pos.size.toFixed(0)} <span className="text-xs text-slate-400 font-mono">({pos.leverage}x)</span>
                     </td>
@@ -97,7 +123,7 @@ export default function PositionsTable({ positions, onCloseTrade, onRefresh, loa
                     </td>
                     <td className="py-3 px-3 font-mono font-semibold">
                       <span className={isWin ? 'text-emerald-400' : 'text-rose-400'}>
-                        {isWin ? '+' : ''}${Number(pos.pnl || 0).toFixed(2)} ({isWin ? '+' : ''}{Number(pos.pnl_pct || 0).toFixed(1)}%)
+                        {isWin ? '+' : ''}${Number(pos.pnl || 0).toFixed(2)} ({isWin ? '+' : ''}{Number(pos.pnl_pct || 0).toFixed(2)}%)
                       </span>
                     </td>
                     <td className="py-3 px-4 text-right">

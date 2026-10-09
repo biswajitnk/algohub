@@ -63,7 +63,7 @@ async function request(endpoint, options = {}) {
 export const api = {
   // Dashboard
   getStats: (mode = null) => request('/dashboard/stats' + (mode ? `?mode=${mode}` : '')),
-  getEquityCurve: (days = 7) => request(`/dashboard/equity-curve?days=${days}`),
+  getEquityCurve: (days = 7, mode = null) => request('/dashboard/equity-curve' + (mode ? `?days=${days}&mode=${mode}` : `?days=${days}`)),
 
   // Bots
   getBots: () => request('/bots'),

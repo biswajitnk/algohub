@@ -28,14 +28,16 @@ async def list_trades(
     res = await db.execute(query)
     return res.scalars().all()
 
+import asyncio
 from datetime import datetime
+from app.risk_manager import risk_manager
 
 @router.get("/open", response_model=List[TradeResponse])
 async def get_open_trades(
     mode: Optional[str] = Query(None, description="Filter by PAPER or LIVE"),
     db: AsyncSession = Depends(get_db)
 ):
-    """Fetch currently active open trades (both paper bot trades and live Delta positions)."""
+    """Fetch currently active open trades (both paper bot trades and live Delta positions) with real-time mark price and PnL."""
     # 1. Fetch configured bots to map symbols to running algorithms
     bots_res = await db.execute(select(BotConfig))
     bots_map = {b.symbol.upper(): b for b in bots_res.scalars().all()}
@@ -49,7 +51,57 @@ async def get_open_trades(
         query = select(Trade).where(Trade.status == "OPEN").order_by(Trade.created_at.desc())
 
     res = await db.execute(query)
-    all_open = list(res.scalars().all())
+    db_trades = list(res.scalars().all())
+
+    # Helper function to enrich DB trades with live Delta tickers and dynamic Unrealized PnL
+    async def _enrich_trade(t: Trade) -> TradeResponse:
+        current_price = t.entry_price
+        pnl = 0.0
+        pnl_pct = 0.0
+        if engine.delta_client:
+            try:
+                ticker = await engine.delta_client.get_ticker(t.symbol)
+                if ticker:
+                    raw_price = ticker.get("mark_price") or ticker.get("close")
+                    if raw_price:
+                        current_price = float(raw_price)
+                        pnl, pnl_pct = risk_manager.calculate_pnl(
+                            side=t.side,
+                            entry_price=t.entry_price,
+                            current_price=current_price,
+                            size_usd=t.size,
+                            leverage=t.leverage
+                        )
+            except Exception:
+                pass
+
+        return TradeResponse(
+            id=t.id,
+            bot_id=t.bot_id,
+            strategy_name=t.strategy_name,
+            symbol=t.symbol,
+            side=t.side,
+            mode=t.mode,
+            entry_price=t.entry_price,
+            current_price=round(current_price, 2),
+            exit_price=None,
+            size=t.size,
+            contracts=t.contracts,
+            leverage=t.leverage,
+            stop_loss=t.stop_loss,
+            take_profit=t.take_profit,
+            pnl=pnl,
+            pnl_pct=pnl_pct,
+            status=t.status,
+            exit_reason=t.exit_reason,
+            delta_order_id=t.delta_order_id,
+            delta_exit_order_id=t.delta_exit_order_id,
+            created_at=t.created_at,
+            closed_at=t.closed_at
+        )
+
+    all_open = await asyncio.gather(*[_enrich_trade(t) for t in db_trades])
+    all_open = list(all_open)
 
     # 3. Fetch live open positions from Delta Exchange India (only if not strictly PAPER mode)
     if active_mode != "PAPER" and engine.delta_client and engine.delta_client.api_key:
@@ -66,6 +118,7 @@ async def get_open_trades(
                     unrealized_pnl = float(p.get("unrealized_pnl", 0) or 0)
                     pnl_pct = round((unrealized_pnl / max(margin, 0.01)) * 100, 2)
                     sym = p.get("product_symbol") or p.get("product", {}).get("symbol", "UNKNOWN")
+                    mark_p = float(p.get("mark_price") or p.get("entry_price") or 0)
 
                     # Check which algo is assigned to this symbol
                     bot = bots_map.get(sym.upper())
@@ -87,6 +140,7 @@ async def get_open_trades(
                         side="buy" if float(p.get("size", 0)) > 0 else "sell",
                         mode="LIVE",
                         entry_price=float(p.get("entry_price", 0) or 0),
+                        current_price=round(mark_p, 2) if mark_p > 0 else None,
                         exit_price=None,
                         size=round(margin * lev, 2),
                         contracts=size_contracts,
