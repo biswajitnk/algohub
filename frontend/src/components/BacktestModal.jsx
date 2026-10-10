@@ -28,7 +28,10 @@ export default function BacktestModal({
     leverage: 5,
     target_rr_ratio: 2.0,
     stop_loss_mode: 'rsi_or_candle_low',
-    sl_buffer_pct: 0.2
+    sl_reference: 'timeframe_low',
+    min_today_gain_pct: 2.0,
+    sl_buffer_pct: 0.2,
+    use_spy_filter: false
   });
 
   useEffect(() => {
@@ -59,13 +62,18 @@ export default function BacktestModal({
         timeframe: params.timeframe,
         candles_count: params.candles_count,
         sizing_mode: params.sizing_mode,
+        use_spy_filter: Boolean(params.use_spy_filter),
         total_capital: parseFloat(params.total_capital) || 10000,
         risk_pct: parseFloat(params.risk_pct) || 2.0,
         allocation_usd: parseFloat(params.allocation_usd) || 100,
         leverage: params.leverage,
         params: {
+          timeframe: params.timeframe,
+          use_spy_filter: Boolean(params.use_spy_filter),
           target_rr_ratio: isNaN(Number(params.target_rr_ratio)) ? params.target_rr_ratio : parseFloat(params.target_rr_ratio),
           stop_loss_mode: params.stop_loss_mode || 'rsi_or_candle_low',
+          sl_reference: params.sl_reference || 'timeframe_low',
+          min_today_gain_pct: parseFloat(params.min_today_gain_pct) !== undefined ? parseFloat(params.min_today_gain_pct) : 2.0,
           sl_buffer_pct: parseFloat(params.sl_buffer_pct) !== undefined ? parseFloat(params.sl_buffer_pct) : 0.2
         }
       };
@@ -224,18 +232,30 @@ export default function BacktestModal({
 
               {/* Timeframe */}
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">Candle Timeframe</label>
+                <label className="block text-xs font-medium text-slate-300 mb-1 flex items-center justify-between">
+                  <span>Candle Timeframe</span>
+                  <span className="text-[10px] text-brand-400 font-bold">Dynamic Candles</span>
+                </label>
                 <select
                   value={params.timeframe}
-                  onChange={(e) => setParams({ ...params, timeframe: e.target.value })}
+                  onChange={(e) => {
+                    const tf = e.target.value;
+                    const defaultGains = { '15m': 0.3, '30m': 0.5, '1h': 0.7, '4h': 1.0, '1d': 2.0, '1w': 3.0 };
+                    setParams({
+                      ...params,
+                      timeframe: tf,
+                      min_today_gain_pct: defaultGains[tf] || 1.0
+                    });
+                  }}
                   style={{ backgroundColor: '#0b0f19', color: '#ffffff' }}
-                  className="w-full bg-dark-900 border border-dark-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-brand-500"
+                  className="w-full bg-dark-900 border border-dark-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-brand-500 font-semibold"
                 >
                   <option value="1d" className="bg-dark-900 text-white">1 Day (Daily - Recommended)</option>
+                  <option value="4h" className="bg-dark-900 text-white">4 Hours (Intraday Swing)</option>
+                  <option value="1h" className="bg-dark-900 text-white">1 Hour (Intraday Momentum)</option>
+                  <option value="30m" className="bg-dark-900 text-white">30 Minutes</option>
+                  <option value="15m" className="bg-dark-900 text-white">15 Minutes (Fast Scalp)</option>
                   <option value="1w" className="bg-dark-900 text-white">1 Week (Weekly)</option>
-                  <option value="4h" className="bg-dark-900 text-white">4 Hours</option>
-                  <option value="1h" className="bg-dark-900 text-white">1 Hour</option>
-                  <option value="15m" className="bg-dark-900 text-white">15 Minutes</option>
                 </select>
               </div>
 
@@ -313,6 +333,54 @@ export default function BacktestModal({
                     <option value="0" className="bg-dark-900 text-white">Disabled (Initial SL Only)</option>
                   </optgroup>
                 </select>
+              </div>
+
+              {/* Stop Loss Reference Level & Min Candle Gain */}
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1 flex items-center justify-between">
+                  <span>Stop Loss Reference Level</span>
+                  <span className="text-[10px] text-amber-400 font-bold">Low Anchor</span>
+                </label>
+                <select
+                  value={params.sl_reference || 'timeframe_low'}
+                  onChange={(e) => setParams({ ...params, sl_reference: e.target.value })}
+                  style={{ backgroundColor: '#0b0f19', color: '#ffffff' }}
+                  className="w-full bg-dark-900 border border-dark-700 rounded-lg px-2.5 py-1.5 text-xs text-amber-300 font-semibold focus:outline-none focus:border-brand-500 cursor-pointer"
+                >
+                  <option value="timeframe_low" className="bg-dark-900 text-white">
+                    ⚡ {params.timeframe === '1d' ? '1D Daily Candle Low' : `${params.timeframe.toUpperCase()} Entry Candle Low`} (Tight SL)
+                  </option>
+                  <option value="daily_low" className="bg-dark-900 text-white">
+                    🛡️ 1D Daily Candle Low / Day's Low (Wide / Safe SL)
+                  </option>
+                </select>
+                <span className="text-[10px] text-slate-400 mt-0.5 block">
+                  {params.sl_reference === 'daily_low'
+                    ? "Anchors SL to Day's lowest low (LOD) to withstand intraday volatility."
+                    : `Anchors SL directly to the low of the ${params.timeframe.toUpperCase()} entry candle.`}
+                </span>
+              </div>
+
+              {/* Min Candle Surge Gain (%) */}
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1 flex items-center justify-between">
+                  <span>Min Breakout Gain (%)</span>
+                  <span className="text-[10px] text-brand-400 font-normal">{params.timeframe.toUpperCase()} Momentum</span>
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0.1"
+                  max="10"
+                  value={params.min_today_gain_pct ?? 1.0}
+                  onChange={(e) => setParams({ ...params, min_today_gain_pct: parseFloat(e.target.value) || 1.0 })}
+                  style={{ backgroundColor: '#0b0f19', color: '#ffffff' }}
+                  className="w-full bg-dark-900 border border-dark-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-brand-500 font-mono"
+                  placeholder="1.0"
+                />
+                <span className="text-[10px] text-slate-400 mt-0.5 block">
+                  Surge gain required on the breakout candle before triggering entry.
+                </span>
               </div>
 
               {/* Stop Loss Method */}
@@ -459,6 +527,27 @@ export default function BacktestModal({
                 )}
               </div>
 
+              {/* SPYXUSD Macro 20 EMA Trend Filter */}
+              <div className="sm:col-span-2 lg:col-span-3">
+                <label className="flex items-start space-x-2.5 p-3 rounded-xl bg-dark-950/70 border border-amber-500/30 hover:border-amber-500/60 cursor-pointer transition-all shadow-sm">
+                  <input
+                    type="checkbox"
+                    checked={params.use_spy_filter || false}
+                    onChange={(e) => setParams({ ...params, use_spy_filter: e.target.checked })}
+                    className="mt-0.5 w-4 h-4 text-amber-500 rounded border-dark-650 bg-dark-900 focus:ring-0 cursor-pointer"
+                  />
+                  <div className="flex-1">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-xs font-bold text-amber-300">🛡️ SPYXUSD Macro 20 EMA Trend Filter</span>
+                      <span className="text-[10px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded font-mono font-bold">Market Regime Filter</span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Only take BUY breakout trades when S&amp;P 500 (SPYXUSD) is trading ABOVE its 20 EMA. Automatically filters out stock trades during market corrections and market-wide downturns.
+                    </p>
+                  </div>
+                </label>
+              </div>
+
             </div>
 
             <div className="mt-4 flex items-center justify-between pt-2 border-t border-dark-800">
@@ -503,6 +592,26 @@ export default function BacktestModal({
                     <span className="text-[10px] text-slate-400 block uppercase tracking-wider">Profitable Stocks</span>
                     <span className="text-xs font-bold text-emerald-400">
                       {profitableStocksCount} / {result.analyzed_stocks_count} ({Math.round((profitableStocksCount / (result.analyzed_stocks_count || 1)) * 100)}%)
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* SPY Trend Filter Protection Banner */}
+              {result.use_spy_filter && (
+                <div className="p-3 rounded-xl bg-amber-950/40 border border-amber-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-sm">
+                  <div className="flex items-center space-x-2.5">
+                    <Shield className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                    <div>
+                      <span className="text-xs font-bold text-amber-300">SPYXUSD Macro 20 EMA Trend Filter Active</span>
+                      <span className="text-[11px] text-slate-300 block">
+                        Trades were strictly filtered to only execute when S&amp;P 500 (SPYXUSD) was trading above its 20 EMA.
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center self-start sm:self-auto">
+                    <span className="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-bold font-mono">
+                      {result.spy_filtered_trades_count || 0} Downtrend Trades Skipped
                     </span>
                   </div>
                 </div>

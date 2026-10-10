@@ -64,10 +64,12 @@ export default function BotsManager({
     leverage: 5,
     target_rr_ratio: '2',
     stop_loss_mode: 'rsi_or_candle_low',
+    sl_reference: 'timeframe_low',
+    min_today_gain_pct: 2.0,
     sl_buffer_pct: 0.2,
     stop_loss_pct: '',
     take_profit_pct: '',
-    params: '{"rsi_period": 14, "ema_period": 20, "past_dip_window": 6, "min_today_gain_pct": 2.0, "target_rr_ratio": 2.0, "stop_loss_mode": "rsi_or_candle_low", "sl_buffer_pct": 0.2}'
+    params: '{"rsi_period": 14, "ema_period": 20, "past_dip_window": 6, "min_today_gain_pct": 2.0, "target_rr_ratio": 2.0, "stop_loss_mode": "rsi_or_candle_low", "sl_reference": "timeframe_low", "sl_buffer_pct": 0.2}'
   });
 
   const handleCreate = async (e) => {
@@ -76,6 +78,9 @@ export default function BotsManager({
     try {
       parsedParams = JSON.parse(newBotData.params || '{}');
     } catch (_) {}
+    parsedParams.timeframe = newBotData.timeframe || '1d';
+    parsedParams.sl_reference = newBotData.sl_reference || 'timeframe_low';
+    parsedParams.min_today_gain_pct = parseFloat(newBotData.min_today_gain_pct) !== undefined ? parseFloat(newBotData.min_today_gain_pct) : 2.0;
     parsedParams.target_rr_ratio = isNaN(Number(newBotData.target_rr_ratio)) ? newBotData.target_rr_ratio : (parseFloat(newBotData.target_rr_ratio) || 2.0);
     parsedParams.stop_loss_mode = newBotData.stop_loss_mode || 'rsi_or_candle_low';
     parsedParams.sl_buffer_pct = parseFloat(newBotData.sl_buffer_pct) !== undefined ? parseFloat(newBotData.sl_buffer_pct) : 0.2;
@@ -98,16 +103,31 @@ export default function BotsManager({
   const handleSelectFromScreener = (symbol, name, category, timeframe = '1d') => {
     const cleanSym = symbol.replace('XUSD', '').replace('BUSD', '');
     const tfLabel = timeframe === '1d' ? 'Daily' : timeframe.toUpperCase();
+    const defaultGains = { '15m': 0.3, '30m': 0.5, '1h': 0.7, '4h': 1.0, '1d': 2.0, '1w': 3.0 };
+    const gain = defaultGains[timeframe] || 2.0;
     setNewBotData(prev => ({
       ...prev,
       name: `${cleanSym} ${tfLabel} Breakout Bot`,
       symbol: symbol,
       strategy_name: 'RSI_EMA_Breakout',
       timeframe: timeframe,
+      min_today_gain_pct: gain,
+      sl_reference: 'timeframe_low',
       risk_pct: 2.0,
       target_rr_ratio: 2.0,
       stop_loss_pct: '',
-      take_profit_pct: ''
+      take_profit_pct: '',
+      params: JSON.stringify({
+        rsi_period: 14,
+        ema_period: 20,
+        past_dip_window: 6,
+        timeframe: timeframe,
+        min_today_gain_pct: gain,
+        target_rr_ratio: 2.0,
+        stop_loss_mode: 'rsi_or_candle_low',
+        sl_reference: 'timeframe_low',
+        sl_buffer_pct: 0.2
+      })
     }));
     setShowCreateModal(true);
   };
@@ -504,17 +524,35 @@ export default function BotsManager({
               {/* Candle Timeframe & Breakeven Target (R:R) */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">Candle Timeframe</label>
+                  <label className="block text-xs font-medium text-slate-300 mb-1 flex items-center justify-between">
+                    <span>Candle Timeframe</span>
+                    <span className="text-[10px] text-brand-400 font-bold">Dynamic Candles</span>
+                  </label>
                   <select
                     value={newBotData.timeframe}
-                    onChange={(e) => setNewBotData({ ...newBotData, timeframe: e.target.value })}
-                    className="w-full bg-dark-900 border border-dark-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-brand-500"
+                    onChange={(e) => {
+                      const tf = e.target.value;
+                      const defaultGains = { '15m': 0.3, '30m': 0.5, '1h': 0.7, '4h': 1.0, '1d': 2.0, '1w': 3.0 };
+                      const gain = defaultGains[tf] || 1.0;
+                      let parsed = {};
+                      try { parsed = JSON.parse(newBotData.params || '{}'); } catch (_) {}
+                      parsed.timeframe = tf;
+                      parsed.min_today_gain_pct = gain;
+                      setNewBotData(prev => ({
+                        ...prev,
+                        timeframe: tf,
+                        min_today_gain_pct: gain,
+                        params: JSON.stringify(parsed)
+                      }));
+                    }}
+                    className="w-full bg-dark-900 border border-dark-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-brand-500 font-semibold"
                   >
                     <option value="1d">1 Day (Daily - Recommended)</option>
-                    <option value="1w">1 Week (Weekly)</option>
-                    <option value="4h">4 Hours</option>
-                    <option value="1h">1 Hour</option>
-                    <option value="15m">15 Minutes</option>
+                    <option value="4h">4 Hours (Intraday Swing)</option>
+                    <option value="1h">1 Hour (Intraday Momentum)</option>
+                    <option value="30m">30 Minutes</option>
+                    <option value="15m">15 Minutes (Fast Scalp)</option>
+                    <option value="1w">1 Week (Weekly Macro)</option>
                   </select>
                 </div>
 
@@ -569,6 +607,72 @@ export default function BotsManager({
                       : parseFloat(newBotData.target_rr_ratio) > 0
                       ? `Hits 1:${newBotData.target_rr_ratio} → SL moves to Entry to lock breakeven.`
                       : 'Breakeven lock disabled.'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Stop Loss Reference Level (Timeframe Low vs Daily Low) & Min Candle Surge */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1 flex items-center justify-between">
+                    <span>Stop Loss Reference Level</span>
+                    <span className="text-[10px] text-amber-400 font-semibold">Low Anchor</span>
+                  </label>
+                  <select
+                    value={newBotData.sl_reference || 'timeframe_low'}
+                    onChange={(e) => {
+                      const ref = e.target.value;
+                      let parsed = {};
+                      try { parsed = JSON.parse(newBotData.params || '{}'); } catch (_) {}
+                      parsed.sl_reference = ref;
+                      setNewBotData(prev => ({
+                        ...prev,
+                        sl_reference: ref,
+                        params: JSON.stringify(parsed)
+                      }));
+                    }}
+                    className="w-full bg-dark-900 border border-dark-700 rounded-lg px-3 py-2 text-sm text-amber-300 font-semibold focus:outline-none focus:border-brand-500 cursor-pointer"
+                  >
+                    <option value="timeframe_low">
+                      ⚡ {newBotData.timeframe === '1d' ? '1D Daily Candle Low' : `${newBotData.timeframe.toUpperCase()} Entry Candle Low`} (Tight SL)
+                    </option>
+                    <option value="daily_low">
+                      🛡️ 1D Daily Candle Low / Day's Low (Wide / Safe SL)
+                    </option>
+                  </select>
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">
+                    {newBotData.sl_reference === 'daily_low'
+                      ? "Uses the full Day's lowest low (LOD) as stop loss. Protects against 4h/1h intraday wicks."
+                      : `Sets stop loss directly at the low of the triggering ${newBotData.timeframe.toUpperCase()} candle.`}
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1 flex items-center justify-between">
+                    <span>Min Candle Surge Gain (%)</span>
+                    <span className="text-[10px] text-brand-400 font-normal">{newBotData.timeframe.toUpperCase()} Momentum</span>
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0.1"
+                    max="10"
+                    value={newBotData.min_today_gain_pct ?? 1.0}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value) || 1.0;
+                      let parsed = {};
+                      try { parsed = JSON.parse(newBotData.params || '{}'); } catch (_) {}
+                      parsed.min_today_gain_pct = val;
+                      setNewBotData(prev => ({
+                        ...prev,
+                        min_today_gain_pct: val,
+                        params: JSON.stringify(parsed)
+                      }));
+                    }}
+                    className="w-full bg-dark-900 border border-dark-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-brand-500 font-mono"
+                  />
+                  <span className="text-[10px] text-slate-400 mt-0.5 block">
+                    Breakout candle must gain at least this % (auto-tuned for {newBotData.timeframe.toUpperCase()}).
                   </span>
                 </div>
               </div>

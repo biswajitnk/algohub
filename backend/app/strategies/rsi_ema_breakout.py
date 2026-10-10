@@ -29,13 +29,20 @@ class RSIEMABreakoutStrategy(BaseStrategy):
         self.rsi_period = int(self.params.get("rsi_period", 14))
         self.ema_period = int(self.params.get("ema_period", 20))
         self.past_dip_window = int(self.params.get("past_dip_window", 6))
+        
+        self.timeframe = str(self.params.get("timeframe", "1d")).lower()
+        default_gains = {"15m": 0.3, "30m": 0.5, "1h": 0.7, "4h": 1.0, "1d": 2.0, "1w": 3.0}
+        
         raw_gain = self.params.get("min_today_gain_pct")
-        if raw_gain is not None:
-            self.min_today_gain_pct = float(raw_gain)
+        if raw_gain is not None and str(raw_gain).strip() != "":
+            raw_gain_float = float(raw_gain)
+            # If user had default 2.0% saved but is running on intraday (e.g. 4h, 1h), auto-adjust to reasonable timeframe gain
+            if raw_gain_float == 2.0 and self.timeframe in ["4h", "1h", "30m", "15m"]:
+                self.min_today_gain_pct = default_gains.get(self.timeframe, 1.0)
+            else:
+                self.min_today_gain_pct = raw_gain_float
         else:
-            tf = str(self.params.get("timeframe", "1d")).lower()
-            default_gains = {"15m": 0.3, "30m": 0.5, "1h": 0.7, "4h": 1.5, "1d": 2.0}
-            self.min_today_gain_pct = default_gains.get(tf, 2.0)
+            self.min_today_gain_pct = default_gains.get(self.timeframe, 2.0)
         
         raw_target = self.params.get("target_rr_ratio", 2.0)
         self.target_mode = "rr"
@@ -56,6 +63,9 @@ class RSIEMABreakoutStrategy(BaseStrategy):
         self.stop_loss_mode = str(self.params.get("stop_loss_mode", "rsi_or_candle_low")).lower()
         self.sl_buffer_pct = float(self.params.get("sl_buffer_pct", 0.2))
 
+        # Stop loss reference: 'timeframe_low' (e.g. 4H / 1H candle low) vs 'daily_low' (1D Daily candle low)
+        self.sl_reference = str(self.params.get("sl_reference", "timeframe_low")).lower()
+
     def calculate_indicators(self, df: pd.DataFrame) -> pd.DataFrame:
         df['close'] = pd.to_numeric(df['close'])
         df['open'] = pd.to_numeric(df['open'])
@@ -73,6 +83,18 @@ class RSIEMABreakoutStrategy(BaseStrategy):
 
         # 2. 20 EMA
         df['ema20'] = df['close'].ewm(span=self.ema_period, adjust=False).mean()
+
+        # 3. Dynamic Daily Low (cumulative low of each day's candles)
+        if 'time' in df.columns:
+            try:
+                df['time_num'] = pd.to_numeric(df['time'])
+                df['dt'] = pd.to_datetime(df['time_num'], unit='s')
+                df['date'] = df['dt'].dt.date
+                df['daily_low'] = df.groupby('date')['low'].cummin()
+            except Exception:
+                df['daily_low'] = df['low']
+        else:
+            df['daily_low'] = df['low']
 
         return df
 
@@ -123,13 +145,22 @@ class RSIEMABreakoutStrategy(BaseStrategy):
         had_rsi_dip_below_50 = (past_rsi_window < 50.0).any()
         min_past_rsi = float(past_rsi_window.min()) if len(past_rsi_window) > 0 else 50.0
 
+        curr_daily_low = float(curr['daily_low']) if ('daily_low' in curr and not pd.isna(curr['daily_low'])) else curr_low
+        tf_label = "Yday" if self.timeframe == "1d" else f"Prev {self.timeframe.upper()}"
+
         indicators = {
             "rsi": round(curr_rsi, 2),
             "prev_rsi": round(prev_rsi, 2),
             "ema20": round(curr_ema20, 2),
             "today_gain_pct": round(today_gain_pct, 2),
             "entry_candle_low": round(curr_low, 2),
+            "timeframe_low": round(curr_low, 2),
+            "daily_low": round(curr_daily_low, 2),
+            "sl_reference": self.sl_reference,
             "yesterday_high": round(prev_high, 2),
+            "prev_high": round(prev_high, 2),
+            "timeframe": self.timeframe,
+            "min_gain_pct": self.min_today_gain_pct,
             "had_rsi_dip_below_50": bool(had_rsi_dip_below_50),
             "min_past_rsi_6d": round(min_past_rsi, 2)
         }
@@ -302,28 +333,34 @@ class RSIEMABreakoutStrategy(BaseStrategy):
         indicators["c5_today_gain"] = bool(c5_today_gain)
 
         if all_criteria_met:
+            # Base SL determined dynamically by sl_reference ('daily_low' vs 'timeframe_low')
+            base_sl = curr_daily_low if self.sl_reference == "daily_low" else curr_low
+
             # Stop loss calculation based on stop_loss_mode and sl_buffer_pct
             if self.stop_loss_mode == "candle_low":
-                suggested_sl = curr_low
+                suggested_sl = round(base_sl, 2)
             else:
-                # Apply buffer below entry candle low (e.g. 0.2% buffer = curr_low * (1 - 0.002))
-                suggested_sl = round(curr_low * (1.0 - (self.sl_buffer_pct / 100.0)), 2)
+                # Apply buffer below the base SL (e.g. 0.2% buffer = base_sl * (1 - 0.002))
+                suggested_sl = round(base_sl * (1.0 - (self.sl_buffer_pct / 100.0)), 2)
 
             risk_r = max(0.01, curr_price - suggested_sl)
             target_1_2 = curr_price + (self.target_rr_ratio * risk_r)
             indicators["breakout_trigger"] = "TODAY"
+            indicators["base_sl"] = round(base_sl, 2)
             indicators["suggested_sl"] = round(suggested_sl, 2)
             indicators["risk_r"] = round(risk_r, 2)
             indicators["target_1_2"] = round(target_1_2, 2)
             indicators["stop_loss_mode"] = self.stop_loss_mode
             indicators["sl_buffer_pct"] = self.sl_buffer_pct
 
+            sl_desc = f"1D Daily Low (${curr_daily_low:.2f})" if self.sl_reference == "daily_low" else f"{self.timeframe.upper()} Candle Low (${curr_low:.2f})"
+
             return {
                 "action": "BUY",
                 "reason": (
-                    f"RSI 20 EMA Breakout Entry: RSI 14={curr_rsi:.1f} (>50 after 6D dip), "
-                    f"Price > 20 EMA ({curr_ema20:.2f}), Broke Yest High ({prev_high:.2f}), "
-                    f"Today Gain +{today_gain_pct:.1f}%. SL ({self.stop_loss_mode}, {self.sl_buffer_pct}% buf): ${suggested_sl:.2f}, Target: ${target_1_2:.2f}"
+                    f"RSI 20 EMA Breakout Entry: RSI 14={curr_rsi:.1f} (>50 after 6-bar dip), "
+                    f"Price > 20 EMA ({curr_ema20:.2f}), Broke {tf_label} High ({prev_high:.2f}), "
+                    f"Candle Gain +{today_gain_pct:.1f}%. SL ({sl_desc}, {self.stop_loss_mode}, {self.sl_buffer_pct}% buf): ${suggested_sl:.2f}, Target: ${target_1_2:.2f}"
                 ),
                 "indicators": indicators,
                 "price": curr_price,
@@ -331,7 +368,7 @@ class RSIEMABreakoutStrategy(BaseStrategy):
                 "target_1_2": target_1_2
             }
 
-        # Check if breakout triggered on yesterday's closed candle (Informational only: Late entry is strictly prohibited)
+        # Check if breakout triggered on previous closed candle (Informational only: Late entry is strictly prohibited)
         triggered_yesterday = False
         if len(df) >= self.past_dip_window + 3:
             prev_open = float(prev['open'])
@@ -366,12 +403,12 @@ class RSIEMABreakoutStrategy(BaseStrategy):
                 indicators["yesterday_target_1_2"] = round(prev_close + (self.target_rr_ratio * yest_risk), 2)
 
         reasons = []
-        if not c1_rsi_dip: reasons.append("No 6D RSI<50 dip")
+        if not c1_rsi_dip: reasons.append("No 6-bar RSI<50 dip")
         if not c2_rsi_above_50: reasons.append(f"RSI {curr_rsi:.1f}<50")
         if not c3_ema_cross: reasons.append(f"Price (${curr_price:.2f}) <= 20 EMA (${curr_ema20:.2f})")
-        if not c4_yesterday_cross: reasons.append(f"Below yesterday high ({prev_high:.2f})")
+        if not c4_yesterday_cross: reasons.append(f"Below {tf_label} high ({prev_high:.2f})")
         if not c5_today_gain: reasons.append(f"Gain {today_gain_pct:.1f}% < {self.min_today_gain_pct}%")
-        if triggered_yesterday: reasons.append("Yesterday breakout was missed (late entry strictly prohibited)")
+        if triggered_yesterday: reasons.append(f"{tf_label} breakout was missed (late entry strictly prohibited)")
 
         return {
             "action": "HOLD",

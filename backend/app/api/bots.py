@@ -5,6 +5,11 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone
 import asyncio
 import json
+import bisect
+import logging
+import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 def _format_candle_time(ts) -> str:
     """Format Unix timestamp to clean UTC date string (YYYY-MM-DD or YYYY-MM-DD HH:MM)."""
@@ -98,12 +103,14 @@ def _simulate_candles(
     leverage: int,
     params_dict: Optional[Dict[str, Any]] = None,
     total_capital: Optional[float] = None,
-    risk_pct: Optional[float] = None
+    risk_pct: Optional[float] = None,
+    spy_bullish_fn: Optional[Any] = None
 ):
     strat = strat_cls(params_dict)
     trades = []
     position = None
     total_pnl = 0.0
+    blocked_by_spy = 0
     target_rr = getattr(strat, 'target_rr_ratio', 2.0)
 
     for i in range(25, len(candles)):
@@ -209,6 +216,12 @@ def _simulate_candles(
                 position = None
 
             if not position:
+                # SPYXUSD Macro 20 EMA Trend Filter Check
+                if spy_bullish_fn and action == "BUY":
+                    if not spy_bullish_fn(curr_time):
+                        blocked_by_spy += 1
+                        continue
+
                 sl = signal.get("suggested_sl", curr_low if action == "BUY" else curr_high)
                 
                 # Dynamic risk sizing
@@ -257,7 +270,7 @@ def _simulate_candles(
             "reason": "OPEN_AT_END"
         })
 
-    return trades, total_pnl
+    return trades, total_pnl, blocked_by_spy
 
 
 @router.post("/backtest")
@@ -287,6 +300,35 @@ async def run_backtest(payload: Dict[str, Any]):
         except Exception:
             params_dict = {}
 
+    params_dict["timeframe"] = timeframe
+    if "sl_reference" in payload:
+        params_dict["sl_reference"] = payload["sl_reference"]
+    elif "sl_reference" not in params_dict:
+        params_dict["sl_reference"] = "timeframe_low"
+
+    use_spy_filter = bool(payload.get("use_spy_filter", False) or params_dict.get("use_spy_filter", False))
+    spy_bullish_fn = None
+    if use_spy_filter:
+        try:
+            spy_candles = await engine.delta_client.get_candles(symbol="SPYXUSD", resolution=timeframe, count=candles_count + 50)
+            if spy_candles and len(spy_candles) >= 20:
+                spy_df = pd.DataFrame(spy_candles)
+                spy_df['close'] = pd.to_numeric(spy_df['close'])
+                spy_df['time'] = pd.to_numeric(spy_df['time'])
+                spy_df['ema20'] = spy_df['close'].ewm(span=20, adjust=False).mean()
+                spy_df['is_bullish'] = spy_df['close'] > spy_df['ema20']
+                
+                spy_map = dict(zip(spy_df['time'], spy_df['is_bullish']))
+                spy_times = sorted(spy_map.keys())
+                
+                def _is_spy_bullish(t: int) -> bool:
+                    idx = bisect.bisect_right(spy_times, t) - 1
+                    return spy_map[spy_times[idx]] if idx >= 0 else True
+                    
+                spy_bullish_fn = _is_spy_bullish
+        except Exception as e:
+            logger.warning(f"Could not load SPYXUSD trend candles: {e}")
+
     strategy_registry = {
         "Supertrend": SupertrendStrategy,
         "EMA_Crossover": EMACrossoverStrategy,
@@ -304,7 +346,7 @@ async def run_backtest(payload: Dict[str, Any]):
                 candles = await engine.delta_client.get_candles(symbol=sym, resolution=timeframe, count=candles_count)
                 if not candles or len(candles) < 25:
                     return None
-                trades, pnl = _simulate_candles(sym, candles, strat_cls, allocation_usd, leverage, params_dict, cap_arg, risk_arg)
+                trades, pnl, blk = _simulate_candles(sym, candles, strat_cls, allocation_usd, leverage, params_dict, cap_arg, risk_arg, spy_bullish_fn)
                 win_count = len([t for t in trades if t['pnl'] > 0])
                 loss_count = len([t for t in trades if t['pnl'] <= 0])
                 win_rate = (win_count / len(trades) * 100.0) if trades else 0.0
@@ -316,6 +358,7 @@ async def run_backtest(payload: Dict[str, Any]):
                     "losing_trades": loss_count,
                     "win_rate_pct": round(win_rate, 2),
                     "pnl_usd": round(pnl, 2),
+                    "blocked_by_spy": blk,
                     "trades": trades
                 }
             except Exception:
@@ -371,6 +414,8 @@ async def run_backtest(payload: Dict[str, Any]):
             "total_capital": total_capital,
             "risk_pct": risk_pct,
             "sizing_mode": sizing_mode,
+            "use_spy_filter": use_spy_filter,
+            "spy_filtered_trades_count": sum(r.get("blocked_by_spy", 0) for r in valid_results),
             "ending_balance_usd": round(total_capital + total_pnl, 2),
             "return_on_capital_pct": round((total_pnl / total_capital) * 100.0, 2) if total_capital > 0 else 0.0,
             "stock_breakdown": stock_breakdown,
@@ -386,7 +431,7 @@ async def run_backtest(payload: Dict[str, Any]):
         if len(candles) < 25:
             raise HTTPException(status_code=400, detail="Insufficient historical candles from exchange")
 
-        trades, total_pnl = _simulate_candles(symbol, candles, strat_cls, allocation_usd, leverage, params_dict, cap_arg, risk_arg)
+        trades, total_pnl, blk = _simulate_candles(symbol, candles, strat_cls, allocation_usd, leverage, params_dict, cap_arg, risk_arg, spy_bullish_fn)
         win_count = len([t for t in trades if t['pnl'] > 0])
         loss_count = len([t for t in trades if t['pnl'] <= 0])
         win_rate = (win_count / len(trades) * 100.0) if trades else 0.0
@@ -396,6 +441,8 @@ async def run_backtest(payload: Dict[str, Any]):
             "is_basket": False,
             "strategy": strat_name,
             "timeframe": timeframe,
+            "use_spy_filter": use_spy_filter,
+            "spy_filtered_trades_count": blk,
             "candles_analyzed": len(candles),
             "total_trades": len(trades),
             "winning_trades": win_count,
