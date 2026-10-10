@@ -135,6 +135,9 @@ class RSIEMABreakoutStrategy(BaseStrategy):
         prev_rsi = float(prev['rsi'])
         prev_ema20 = float(prev['ema20'])
 
+        prev2 = df.iloc[-3] if len(df) >= 3 else prev
+        prev2_rsi = float(prev2['rsi'])
+
         # Today's performance percentage (standard daily change from prev close, or intraday change from open)
         gain_from_prev = ((curr_price - prev_close) / prev_close) * 100 if prev_close > 0 else 0.0
         gain_from_open = ((curr_price - curr_open) / curr_open) * 100 if curr_open > 0 else 0.0
@@ -151,6 +154,7 @@ class RSIEMABreakoutStrategy(BaseStrategy):
         indicators = {
             "rsi": round(curr_rsi, 2),
             "prev_rsi": round(prev_rsi, 2),
+            "prev2_rsi": round(prev2_rsi, 2),
             "ema20": round(curr_ema20, 2),
             "today_gain_pct": round(today_gain_pct, 2),
             "entry_candle_low": round(curr_low, 2),
@@ -312,8 +316,10 @@ class RSIEMABreakoutStrategy(BaseStrategy):
         # Condition 1: RSI 14 (Past 6D) had dip below 50
         c1_rsi_dip = had_rsi_dip_below_50
 
-        # Condition 2: Current RSI crosses above 50
-        c2_rsi_above_50 = (curr_rsi >= 50.0) and (prev_rsi < 50.0 or had_rsi_dip_below_50)
+        # Condition 2: Fresh RSI Cross above 50 (Option 2: Current candle OR max 1 candle prior)
+        is_exact_cross = bool(prev_rsi < 50.0 and curr_rsi >= 50.0)
+        is_prev_cross = bool(prev2_rsi < 50.0 and prev_rsi >= 50.0 and curr_rsi >= 50.0)
+        c2_rsi_above_50 = is_exact_cross or is_prev_cross
 
         # Condition 3: Current 20 EMA above (Price > 20 EMA)
         c3_ema_cross = curr_price > curr_ema20
@@ -331,6 +337,8 @@ class RSIEMABreakoutStrategy(BaseStrategy):
         indicators["c3_ema_cross"] = bool(c3_ema_cross)
         indicators["c4_yesterday_cross"] = bool(c4_yesterday_cross)
         indicators["c5_today_gain"] = bool(c5_today_gain)
+        indicators["is_exact_cross"] = is_exact_cross
+        indicators["is_prev_cross"] = is_prev_cross
 
         if all_criteria_met:
             # Base SL determined dynamically by sl_reference ('daily_low' vs 'timeframe_low')
@@ -354,11 +362,12 @@ class RSIEMABreakoutStrategy(BaseStrategy):
             indicators["sl_buffer_pct"] = self.sl_buffer_pct
 
             sl_desc = f"1D Daily Low (${curr_daily_low:.2f})" if self.sl_reference == "daily_low" else f"{self.timeframe.upper()} Candle Low (${curr_low:.2f})"
+            cross_detail = "Exact Bar Cross" if is_exact_cross else "1-Bar Follow-through Cross"
 
             return {
                 "action": "BUY",
                 "reason": (
-                    f"RSI 20 EMA Breakout Entry: RSI 14={curr_rsi:.1f} (>50 after 6-bar dip), "
+                    f"RSI 20 EMA Breakout Entry ({cross_detail}): RSI 14={curr_rsi:.1f} (Crossed >50, prev={prev_rsi:.1f}), "
                     f"Price > 20 EMA ({curr_ema20:.2f}), Broke {tf_label} High ({prev_high:.2f}), "
                     f"Candle Gain +{today_gain_pct:.1f}%. SL ({sl_desc}, {self.stop_loss_mode}, {self.sl_buffer_pct}% buf): ${suggested_sl:.2f}, Target: ${target_1_2:.2f}"
                 ),
@@ -404,7 +413,11 @@ class RSIEMABreakoutStrategy(BaseStrategy):
 
         reasons = []
         if not c1_rsi_dip: reasons.append("No 6-bar RSI<50 dip")
-        if not c2_rsi_above_50: reasons.append(f"RSI {curr_rsi:.1f}<50")
+        if not c2_rsi_above_50:
+            if curr_rsi < 50.0:
+                reasons.append(f"RSI {curr_rsi:.1f}<50")
+            else:
+                reasons.append(f"RSI 50 cross not fresh (late entry prevented, RSI={curr_rsi:.1f})")
         if not c3_ema_cross: reasons.append(f"Price (${curr_price:.2f}) <= 20 EMA (${curr_ema20:.2f})")
         if not c4_yesterday_cross: reasons.append(f"Below {tf_label} high ({prev_high:.2f})")
         if not c5_today_gain: reasons.append(f"Gain {today_gain_pct:.1f}% < {self.min_today_gain_pct}%")
