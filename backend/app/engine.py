@@ -1,8 +1,10 @@
 import asyncio
 import json
 import logging
+import time
 from datetime import datetime, date
 from typing import Dict, Any, Optional, List
+import pandas as pd
 from sqlalchemy import select, and_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -37,6 +39,7 @@ class AlgoEngine:
             "RSI_EMA_Breakout": RSIEMABreakoutStrategy
         }
         self.poll_interval_seconds = 10  # Main tick loop frequency
+        self._spy_trend_cache: Dict[str, Any] = {}
 
     async def initialize(self):
         """Load API keys and settings from DB on startup."""
@@ -173,6 +176,42 @@ class AlgoEngine:
             except Exception as e:
                 logger.error(f"Error evaluating symbol {sym} for bot {bot.name}: {e}")
 
+    async def get_spy_trend(self, resolution: str = "1d") -> Dict[str, Any]:
+        """
+        Fetch SPYXUSD candles and evaluate 20 EMA trend.
+        Caches for 60 seconds to avoid duplicate exchange calls across basket scans.
+        """
+        now = time.time()
+        cached = self._spy_trend_cache.get(resolution)
+        if cached and (now - cached.get("timestamp", 0) < 60):
+            return cached
+
+        try:
+            spy_candles = await self.delta_client.get_candles(symbol="SPYXUSD", resolution=resolution, count=50)
+            if spy_candles and len(spy_candles) >= 20:
+                df = pd.DataFrame(spy_candles)
+                df['close'] = pd.to_numeric(df['close'])
+                df['ema20'] = df['close'].ewm(span=20, adjust=False).mean()
+                last_row = df.iloc[-1]
+                curr_price = float(last_row['close'])
+                ema20 = float(last_row['ema20'])
+                is_bullish = curr_price > ema20
+
+                res = {
+                    "timestamp": now,
+                    "is_bullish": is_bullish,
+                    "price": round(curr_price, 2),
+                    "ema20": round(ema20, 2),
+                    "status": "OK"
+                }
+                self._spy_trend_cache[resolution] = res
+                return res
+        except Exception as e:
+            logger.warning(f"Failed to fetch SPYXUSD trend candles: {e}")
+
+        # Fallback if SPY data temporarily unavailable
+        return {"timestamp": now, "is_bullish": True, "price": 0.0, "ema20": 0.0, "status": "ERROR"}
+
     async def _evaluate_symbol_for_bot(
         self,
         bot: BotConfig,
@@ -296,6 +335,16 @@ class AlgoEngine:
         action = signal.get("action", "HOLD")
 
         # Broadcast signal telemetry for live logs
+        tick_indicators = dict(signal.get("indicators", {}))
+        bot_use_spy_filter = False
+        if bot.params:
+            try:
+                p_dict = json.loads(bot.params)
+                bot_use_spy_filter = bool(p_dict.get("use_spy_filter", False))
+                tick_indicators["use_spy_filter"] = bot_use_spy_filter
+            except Exception:
+                pass
+
         await notifier.broadcast_ws("BOT_TICK", {
             "bot_id": bot.id,
             "bot_name": bot.name,
@@ -303,7 +352,7 @@ class AlgoEngine:
             "price": current_price,
             "action": action,
             "reason": signal.get("reason", ""),
-            "indicators": signal.get("indicators", {})
+            "indicators": tick_indicators
         })
 
         # 5. Handle Signal Action
@@ -319,6 +368,32 @@ class AlgoEngine:
                 open_trade = None
 
             if not open_trade:
+                # SPYXUSD Macro 20 EMA Trend Filter Check for BUY orders
+                if action == "BUY" and symbol != "SPYXUSD" and bot_use_spy_filter:
+                    spy_trend = await self.get_spy_trend(resolution=bot.timeframe)
+                    if not spy_trend.get("is_bullish", True):
+                        spy_p = spy_trend.get("price", 0.0)
+                        spy_ema = spy_trend.get("ema20", 0.0)
+                        logger.info(
+                            f"Bot {bot.name} ({symbol}): 🛡️ SPYXUSD Macro 20 EMA Filter BLOCKED BUY trade! "
+                            f"S&P 500 (${spy_p:.2f}) is below 20 EMA (${spy_ema:.2f})."
+                        )
+                        await notifier.broadcast_ws("BOT_TICK", {
+                            "bot_id": bot.id,
+                            "bot_name": bot.name,
+                            "symbol": symbol,
+                            "price": current_price,
+                            "action": "HOLD",
+                            "reason": f"🛡️ Blocked by SPYXUSD Macro Filter: SPY (${spy_p:.2f}) <= 20 EMA (${spy_ema:.2f})",
+                            "indicators": {
+                                **tick_indicators,
+                                "spy_filter_blocked": True,
+                                "spy_price": spy_p,
+                                "spy_ema20": spy_ema
+                            }
+                        })
+                        return
+
                 # 1. Calculate SL & TP levels (favor suggested_sl from strategy like entry candle low)
                 suggested_sl = signal.get("suggested_sl")
                 sl_price, tp_price = risk_manager.calculate_sl_tp(

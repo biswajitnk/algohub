@@ -45,6 +45,7 @@ export default function BotsManager({
   onToggleBot, 
   onCreateBot, 
   onDeleteBot, 
+  onUpdateBot,
   onOpenBacktest,
   tradingMode = 'LIVE'
 }) {
@@ -67,9 +68,10 @@ export default function BotsManager({
     sl_reference: 'timeframe_low',
     min_today_gain_pct: 2.0,
     sl_buffer_pct: 0.2,
+    use_spy_filter: true,
     stop_loss_pct: '',
     take_profit_pct: '',
-    params: '{"rsi_period": 14, "ema_period": 20, "past_dip_window": 6, "min_today_gain_pct": 2.0, "target_rr_ratio": 2.0, "stop_loss_mode": "rsi_or_candle_low", "sl_reference": "timeframe_low", "sl_buffer_pct": 0.2}'
+    params: '{"rsi_period": 14, "ema_period": 20, "past_dip_window": 6, "min_today_gain_pct": 2.0, "target_rr_ratio": 2.0, "stop_loss_mode": "rsi_or_candle_low", "sl_reference": "timeframe_low", "sl_buffer_pct": 0.2, "use_spy_filter": true}'
   });
 
   const handleCreate = async (e) => {
@@ -84,6 +86,7 @@ export default function BotsManager({
     parsedParams.target_rr_ratio = isNaN(Number(newBotData.target_rr_ratio)) ? newBotData.target_rr_ratio : (parseFloat(newBotData.target_rr_ratio) || 2.0);
     parsedParams.stop_loss_mode = newBotData.stop_loss_mode || 'rsi_or_candle_low';
     parsedParams.sl_buffer_pct = parseFloat(newBotData.sl_buffer_pct) !== undefined ? parseFloat(newBotData.sl_buffer_pct) : 0.2;
+    parsedParams.use_spy_filter = Boolean(newBotData.use_spy_filter ?? true);
 
     const payload = {
       ...newBotData,
@@ -113,6 +116,7 @@ export default function BotsManager({
       timeframe: timeframe,
       min_today_gain_pct: gain,
       sl_reference: 'timeframe_low',
+      use_spy_filter: true,
       risk_pct: 2.0,
       target_rr_ratio: 2.0,
       stop_loss_pct: '',
@@ -126,7 +130,8 @@ export default function BotsManager({
         target_rr_ratio: 2.0,
         stop_loss_mode: 'rsi_or_candle_low',
         sl_reference: 'timeframe_low',
-        sl_buffer_pct: 0.2
+        sl_buffer_pct: 0.2,
+        use_spy_filter: true
       })
     }));
     setShowCreateModal(true);
@@ -246,6 +251,33 @@ export default function BotsManager({
                     <span className="text-xs text-slate-300 font-medium">
                       {bot.strategy_name === 'RSI_EMA_Breakout' ? 'RSI & 20 EMA Breakout' : bot.strategy_name}
                     </span>
+                    {(() => {
+                      try {
+                        const p = JSON.parse(bot.params || '{}');
+                        const isFiltered = Boolean(p.use_spy_filter);
+                        return (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (!onUpdateBot) return;
+                              const newParams = { ...p, use_spy_filter: !isFiltered };
+                              await onUpdateBot(bot.id, { params: JSON.stringify(newParams) });
+                            }}
+                            className={`inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
+                              isFiltered
+                                ? 'bg-amber-950/80 text-amber-300 border border-amber-700/80 hover:bg-amber-900 shadow-sm'
+                                : 'bg-dark-700/70 text-slate-400 border border-dark-600 hover:text-white'
+                            }`}
+                            title={`Click to ${isFiltered ? 'disable' : 'enable'} SPYXUSD > 20 EMA trend filter`}
+                          >
+                            <span>🛡️ SPY Filter</span>
+                            <span className="text-[9px] uppercase font-mono">
+                              {isFiltered ? 'ON' : 'OFF'}
+                            </span>
+                          </button>
+                        );
+                      } catch (_) { return null; }
+                    })()}
                   </div>
                 </div>
 
@@ -787,6 +819,37 @@ export default function BotsManager({
                     Optional cap (otherwise rides with Breakeven)
                   </span>
                 </div>
+              </div>
+
+              {/* SPYXUSD Macro 20 EMA Trend Filter Card */}
+              <div>
+                <label className="flex items-start space-x-2.5 p-3 rounded-xl bg-dark-950/70 border border-amber-500/30 hover:border-amber-500/60 cursor-pointer transition-all shadow-sm">
+                  <input
+                    type="checkbox"
+                    checked={newBotData.use_spy_filter ?? true}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      let parsed = {};
+                      try { parsed = JSON.parse(newBotData.params || '{}'); } catch (_) {}
+                      parsed.use_spy_filter = checked;
+                      setNewBotData(prev => ({
+                        ...prev,
+                        use_spy_filter: checked,
+                        params: JSON.stringify(parsed)
+                      }));
+                    }}
+                    className="mt-0.5 w-4 h-4 text-amber-500 rounded border-dark-650 bg-dark-900 focus:ring-0 cursor-pointer"
+                  />
+                  <div className="flex-1">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-xs font-bold text-amber-300">🛡️ SPYXUSD Macro 20 EMA Trend Filter</span>
+                      <span className="text-[10px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded font-mono font-bold">Market Regime Filter</span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Only take BUY breakout trades when S&amp;P 500 (SPYXUSD) is trading ABOVE its 20 EMA. Automatically filters out stock trades during market corrections and market-wide downturns.
+                    </p>
+                  </div>
+                </label>
               </div>
 
               <div className="flex items-center justify-end space-x-2 pt-4 border-t border-dark-700">

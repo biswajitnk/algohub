@@ -173,6 +173,15 @@ export default function App() {
     }
   };
 
+  const handleUpdateBot = async (botId, updateData) => {
+    try {
+      const updated = await api.updateBot(botId, updateData);
+      setBots(prev => prev.map(b => b.id === botId ? updated : b));
+    } catch (err) {
+      alert('Failed to update bot: ' + err.message);
+    }
+  };
+
   const handleDeleteBot = async (botId) => {
     try {
       await api.deleteBot(botId);
@@ -446,6 +455,7 @@ export default function App() {
             onToggleBot={handleToggleBot}
             onCreateBot={handleCreateBot}
             onDeleteBot={handleDeleteBot}
+            onUpdateBot={handleUpdateBot}
             onOpenBacktest={handleOpenBacktest}
           />
         )}
