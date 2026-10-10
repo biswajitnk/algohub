@@ -268,7 +268,7 @@ class AlgoEngine:
                 return
 
         # 4. Generate Signal using Strategy
-        strat_cls = self.strategy_registry.get(bot.strategy_name, SupertrendStrategy)
+        strat_cls = self.strategy_registry.get(bot.strategy_name, RSIEMABreakoutStrategy)
         params = {}
         if bot.params:
             try:

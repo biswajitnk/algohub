@@ -205,7 +205,7 @@ export default function App() {
     }
   };
 
-  const handleOpenBacktest = (symbol = 'BTCUSD', strategy = 'Supertrend', timeframe = '15m') => {
+  const handleOpenBacktest = (symbol = 'CATEGORY_SEMIS_AI', strategy = 'RSI_EMA_Breakout', timeframe = '4h') => {
     setBacktestPrefill({ symbol, strategy, timeframe });
     setIsBacktestOpen(true);
   };
@@ -475,9 +475,9 @@ export default function App() {
       <BacktestModal
         isOpen={isBacktestOpen}
         onClose={() => setIsBacktestOpen(false)}
-        initialSymbol={backtestPrefill.symbol || 'BTCUSD'}
-        initialStrategy={backtestPrefill.strategy || 'Supertrend'}
-        initialTimeframe={backtestPrefill.timeframe || '15m'}
+        initialSymbol={backtestPrefill.symbol || 'CATEGORY_SEMIS_AI'}
+        initialStrategy={backtestPrefill.strategy || 'RSI_EMA_Breakout'}
+        initialTimeframe={backtestPrefill.timeframe || '4h'}
       />
 
     </div>

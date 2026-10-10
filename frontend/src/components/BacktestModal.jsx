@@ -221,12 +221,9 @@ export default function BacktestModal({
                   value={params.strategy_name}
                   onChange={(e) => setParams({ ...params, strategy_name: e.target.value })}
                   style={{ backgroundColor: '#0b0f19', color: '#ffffff' }}
-                  className="w-full bg-dark-900 border border-dark-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-brand-500"
+                  className="w-full bg-dark-900 border border-dark-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-brand-500 font-semibold"
                 >
                   <option value="RSI_EMA_Breakout" className="bg-dark-900 text-white">RSI &amp; 20 EMA Daily Breakout (1:2 Breakeven)</option>
-                  <option value="Supertrend" className="bg-dark-900 text-white">Supertrend (ATR Trend Follower)</option>
-                  <option value="EMA_Crossover" className="bg-dark-900 text-white">EMA Crossover (9 / 21)</option>
-                  <option value="RSI_Scalper" className="bg-dark-900 text-white">RSI Scalper</option>
                 </select>
               </div>
 

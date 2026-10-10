@@ -435,16 +435,12 @@ export default function BotsManager({
                       const s = e.target.value;
                       setNewBotData(prev => ({ 
                         ...prev, 
-                        strategy_name: s,
-                        timeframe: s === 'RSI_EMA_Breakout' ? '1d' : prev.timeframe 
+                        strategy_name: s 
                       }));
                     }}
-                    className="w-full bg-dark-900 border border-dark-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-brand-500"
+                    className="w-full bg-dark-900 border border-dark-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-brand-500 font-semibold"
                   >
                     <option value="RSI_EMA_Breakout">RSI &amp; 20 EMA Daily Breakout (1:2 Breakeven)</option>
-                    <option value="Supertrend">Supertrend (ATR Trend Follower)</option>
-                    <option value="EMA_Crossover">EMA Crossover (9 / 21)</option>
-                    <option value="RSI_Scalper">RSI Mean-Reversion Scalper</option>
                   </select>
                 </div>
 
